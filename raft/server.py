@@ -63,27 +63,28 @@ class Server(object):
         if success:
             self.next_index[uuid] = msg['index']
         else:
-            self.next_index[uuid] -= 1
+            self.next_index[uuid] = msg['index'] - 1
 
     def handle_msg_follower_ae(self, msg):
         self.last_update = time.time()
         self.leader = msg['id']
         logs = msg['entries']
-        if not logs:
-            # just a heartbeat
-            return
         addr = self.peers[self.leader]
         previdx = msg['previdx']
         prevterm = msg['prevterm']
         if not self.log.exists(previdx, prevterm):
-            rpc = self.ae_rpc_reply(False)
+            rpc = self.ae_rpc_reply(previdx, False)
             self.udp.send(rpc, addr)
+            return
+        if not logs:
+            # just a heartbeat
+            return
         for ent in sorted(logs):
             term = logs[ent][0]
             msg = logs[ent][2]
             msgid = msg['id']
             self.log.add(term, msgid, msg)
-        rpc = self.ae_rpc_reply(True)
+        rpc = self.ae_rpc_reply(self.log.maxindex(), True)
         self.udp.send(rpc, addr)
 
     def handle_msg_candidate_ae(self, msg):
@@ -182,7 +183,6 @@ class Server(object):
                 continue
             logs = self.log.logs_after_index(self.next_index[uuid])
             rpc = self.ae_rpc(uuid, logs)
-            print "sent %s" % logs
             addr = self.peers[uuid]
             self.udp.send(rpc, addr)
 
@@ -239,12 +239,12 @@ class Server(object):
         }
         return msgpack.packb(rpc)
 
-    def ae_rpc_reply(self, success):
+    def ae_rpc_reply(self, index, success):
         rpc = {
             'type': 'ae_reply',
             'term': self.term,
             'id': self.uuid,
-            'index': self.log.maxindex(),
+            'index': index,
             'success': success
         }
         return msgpack.packb(rpc)
