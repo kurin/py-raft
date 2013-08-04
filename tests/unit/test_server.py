@@ -11,8 +11,8 @@ def server(monkeypatch):
     monkeypatch.setattr(srv, 'store', store)
     monkeypatch.setattr(srv, 'udp', udp)
     store.read_state.return_value = (27, None,
-                {32: (25, True, 'one'),
-                 33: (26, False, 'two')},
+                {32: dict(index=32, term=25, committed=True, msgid='one', msg={}),
+                 33: dict(index=33, term=26, committed=False, msgid='two', msg={})},
                 {'otherobj': ('1.2.3.4', 5678)},
                 'thisobj')
     server = srv.Server()
@@ -44,7 +44,7 @@ def test_handle_msg_rv_1(server):
     server.role = 'candidate'
     msg = mk_rv_rpc(27, 'otherobj', 33, 26)
     rply = mk_rv_rpc_reply('thisobj', 27, False)
-    server.handle_message(msg)
+    server.handle_message(msg, None)
     udp.UDP().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rv_2(server):
@@ -56,7 +56,7 @@ def test_handle_msg_rv_2(server):
     msg = mk_rv_rpc(28, 'otherobj', 33, 26)
     assert server.term == 27
     rply = mk_rv_rpc_reply('thisobj', 28, True)  # term bumpted and voted
-    server.handle_message(msg)
+    server.handle_message(msg, None)
     udp.UDP().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rv_3(server):
@@ -67,7 +67,7 @@ def test_handle_msg_rv_3(server):
     msg = mk_rv_rpc(28, 'otherobj', 33, 25)
     assert server.term == 27
     rply = mk_rv_rpc_reply('thisobj', 28, False)
-    server.handle_message(msg)
+    server.handle_message(msg, None)
     udp.UDP().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rv_4(server):
@@ -77,7 +77,7 @@ def test_handle_msg_rv_4(server):
     msg = mk_rv_rpc(26, 'otherobj', 33, 26)
     assert server.term == 27
     rply = mk_rv_rpc_reply('thisobj', 27, False)
-    server.handle_message(msg)
+    server.handle_message(msg, None)
     udp.UDP().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rev_reply_1(server):
@@ -86,7 +86,7 @@ def test_handle_msg_rev_reply_1(server):
     server.role = 'candidate'
     msg = mk_rv_rpc_reply('otherobj', 27, True)
     server.cronies = set()
-    server.handle_message(msg)
+    server.handle_message(msg, None)
     assert 'otherobj' in server.cronies
 
 def test_handle_sg_rev_reply_2(server):
@@ -96,7 +96,7 @@ def test_handle_sg_rev_reply_2(server):
     msg = mk_rv_rpc_reply('otherobj', 27, False)
     server.cronies = set()
     server.refused = set()
-    server.handle_message(msg)
+    server.handle_message(msg, None)
     assert 'otherobj' not in server.cronies
     assert 'otherobj' in server.refused
 
@@ -107,7 +107,7 @@ def test_handle_msg_rev_reply_3(server):
     msg = mk_rv_rpc_reply('otherobj', 27, True)
     server.cronies = set(['thisobj'])
     server.refused = set()
-    server.handle_message(msg)
+    server.handle_message(msg, None)
     assert server.role == 'leader'
 
 def test_rv_rpc_reply(server):

@@ -80,10 +80,7 @@ class Server(object):
             # just a heartbeat
             return
         for ent in sorted(logs):
-            term = logs[ent][0]
-            msg = logs[ent][2]
-            msgid = msg['id']
-            self.log.add(term, msgid, msg)
+            self.log.add(logs[ent])
         rpc = self.ae_rpc_reply(self.log.maxindex(), True)
         self.udp.send(rpc, addr)
 
@@ -102,7 +99,13 @@ class Server(object):
         self.udp.send(rpc, src)
 
     def handle_msg_leader_cq(self, msg):
-        self.log.add(self.term, msg['id'], msg)
+        logentry = {
+            'term': self.term,
+            'msgid': msg['id'],
+            'committed': False,
+            'msg': msg
+        }
+        self.log.add(logentry)
         rpc = self.cr_rpc(msg['id'], 'ok')
         src = msg['src']
         self.udp.send(rpc, src)
@@ -120,7 +123,11 @@ class Server(object):
     def handle_msg_follower_rv(self, msg):
         term = msg['term']
         uuid = msg['id']
-        olog = {msg['log_index']: (msg['log_term'], None, {})}
+        olog = {msg['log_index']: {
+                    'index': msg['log_index'],
+                    'term': msg['log_term'],
+                    'msgid': '',
+                    'msg': {}}}
         olog = RaftLog(olog)
         addr = self.peers[uuid]
         if term < self.term:
@@ -233,7 +240,7 @@ class Server(object):
             'term': self.term,
             'id': self.uuid,
             'previdx': previdx,
-            'prevterm': self.log.get(previdx)[0],
+            'prevterm': self.log.get_term_of(previdx),
             'entries': append,
             'commitidx': self.commitidx,
         }
