@@ -46,6 +46,8 @@ class Server(object):
         msg['src'] = addr
         # no matter what, if our term is old, update and step down
         if term and term > self.term:
+            if self.role == 'candidate':
+                print "we should be voting for the other guy"
             self.term = term
             self.voted = None
             self.role = 'follower'
@@ -91,7 +93,7 @@ class Server(object):
             # illegitimate, toss it
             return
         self.role = 'follower'
-        self.handle_msg_follower_ae()
+        self.handle_msg_follower_ae(msg)
 
     def handle_msg_follower_cq(self, msg):
         rpc = self.cr_rdr_rpc()
@@ -112,7 +114,7 @@ class Server(object):
 
     def handle_msg_candidate_rv(self, msg):
         # don't vote for a different candidate!
-        uuid = msg[b'id']
+        uuid = msg['id']
         if self.uuid == uuid:
             # huh
             return
@@ -156,7 +158,7 @@ class Server(object):
             self.cronies.add(uuid)
         else:
             self.refused.add(uuid)
-        if len(self.cronies) - 1 > len(self.peers)/2:
+        if len(self.cronies) - 1 >= len(self.peers)/2:
             # won the election
             self.role = 'leader'
             self.next_index = {}
