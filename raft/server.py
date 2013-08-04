@@ -6,6 +6,7 @@ import msgpack
 
 import raft.store as store
 import raft.udp as udp
+from raft.log import RaftLog
 
 
 class Server(object):
@@ -16,10 +17,12 @@ class Server(object):
         self.last_update = time.time()
 
     def load(self):
-        self.term, self.voted, self.log, self.peers, self.uuid = store.read_state()
+        self.term, self.voted, log, self.peers, self.uuid = store.read_state()
+        self.log = RaftLog(log)
 
     def save(self):
-        store.write_state(self.term, self.voted, self.log, self.peers, self.uuid)
+        store.write_state(self.term, self.voted,
+                self.log.dump(), self.peers, self.uuid)
 
     def run(self):
         while True:
@@ -36,16 +39,28 @@ class Server(object):
         # no matter what, if our term is old, update and step down
         if term > self.term:
             self.term = term
+            self.voted = None
             self.role = 'follower'
-        mname = 'handle_msg_%s' % mtype
+        mname = 'handle_msg_%s_%s' % (self.role, mtype)
         if not hasattr(self, mname):
-            return  # drop malformed(?) rpc
+            return  # nothing to do
         getattr(self, mname)(msg)
 
-    def handle_msg_rv(self, msg):
+    def handle_msg_candidate_rv(self, msg):
+        # don't vote for a different candidate!
+        uuid = msg[b'id']
+        if self.uuid == uuid:
+            # huh
+            return
+        addr = self.peers[uuid]
+        rpc = self.rv_rpc_reply(False)
+        self.udp.send(rpc, addr)
+
+    def handle_msg_follower_rv(self, msg):
         term = msg['term']
         uuid = msg['id']
-        olog = msg['log_index'], msg['log_term']
+        olog = {msg['log_index']: (msg['log_term'], None, None)}
+        olog = RaftLog(olog)
         addr = self.peers[uuid]
         if term < self.term:
             # someone with a smaller term wants to get elected
@@ -54,7 +69,7 @@ class Server(object):
             self.udp.send(rpc, addr)
             return
         if (self.voted is None or self.voted == uuid) \
-            and not self.other_log_older(olog):
+            and self.log <= olog:
             # we can vote for this guy
             self.voted = uuid
             self.save()
@@ -66,16 +81,16 @@ class Server(object):
         rpc = self.rv_rpc_reply(False)
         self.udp.send(rpc, addr)
 
-    def handle_msg_rv_reply(self, msg):
-        if self.role == 'follower':
-            # we probably stepped down in the middle of an election
-            return
+    def handle_msg_candidate_rv_reply(self, msg):
         uuid = msg['id']
         voted = msg['voted']
         if voted:
             self.cronies.add(uuid)
         else:
             self.refused.add(uuid)
+        if len(self.cronies) - 1 > len(self.peers)/2:
+            # won the election
+            self.role = 'leader'
 
     def handle_nomessage(self):
         now = time.time()
@@ -88,13 +103,14 @@ class Server(object):
             # we're in an election and haven't won, but the
             # timeout isn't expired.  repoll peers that haven't
             # responded yet
-            self.campaign
+            self.campaign()
         elif self.role == 'candidate':
             # the election timeout *has* expired, and we *still*
             # haven't won or lost.  call a new election.
             self.call_election()
         elif self.role == 'leader':
             # send a heartbeat
+            pass
 
     def call_election(self):
         self.term += 1
@@ -116,24 +132,8 @@ class Server(object):
             addr = self.peers[uuid]
             self.udp.send(rpc, addr)
 
-    def get_log_status(self):
-        try:
-            last_log = self.log[-1]
-        except IndexError:
-            last_log = (0, 0, '')
-        return last_log[0], last_log[1]
-
-    def other_log_older(self, otherlog):
-        my_index, my_term = self.get_log_status()
-        o_index, o_term = otherlog
-        if o_term < my_term:
-            return True
-        if o_index < my_index:
-            return True
-        return False
-
     def rv_rpc(self):
-        log_index, log_term = self.get_log_status()
+        log_index, log_term = self.get_max_index_term()
         rpc = {
             'type': 'rv',
             'term': self.term,
@@ -146,7 +146,20 @@ class Server(object):
     def rv_rpc_reply(self, voted):
         rpc = {
             'type': 'rv_reply',
+            'id': self.uuid,
             'term': self.term,
             'voted': voted
         }
         return msgpack.packb(rpc)
+
+    def ae_rpc(self, peeruuid, append=[]):
+        previdx = self.next_index[peeruuid]
+        rpc = {
+            'type': 'ae',
+            'term': self.term,
+            'id': self.uuid,
+            'previdx': previdx,
+            'prevterm': self.log[previdx][1],
+            'entries': append,
+            'commitidx': self.commitidx,
+        }

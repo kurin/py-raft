@@ -3,7 +3,6 @@ import errno
 import hashlib
 import select
 
-from event import Event
 
 class UDP(object):
     def __init__(self, port):
