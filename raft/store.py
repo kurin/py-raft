@@ -13,7 +13,7 @@ def read_state():
         if not e.errno == errno.ENOENT:
             raise
     # no state file exists; initialize with fresh values
-    return 0, None, [], [], uuid.uuid4().hex
+    return 0, None, [], {}, uuid.uuid4().hex
 
 def write_state(term, voted, log, peers, uuid):
     sfile = '/tmp/raft-state'
