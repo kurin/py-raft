@@ -21,6 +21,7 @@ class Server(object):
         self.delpeers = set()
         self.udp = udp.UDP(port)
         self.last_update = time.time()
+        self.commitidx = 0
 
     def load(self):
         self.term, self.voted, log, self.peers, self.uuid = store.read_state()
@@ -33,9 +34,7 @@ class Server(object):
     def run(self):
         self.udp.start()
         while True:
-            print self.role, self.log.maxindex()
-            if self.role == 'leader':
-                print self.next_index
+            print self.role, self.log.get_commit_index(), self.commitidx, self.term, self.log.maxindex()
             ans = self.udp.recv()
             if ans is not None:
                 msg, addr = ans
@@ -64,9 +63,20 @@ class Server(object):
     def handle_msg_leader_ae_reply(self, msg):
         success = msg['success']
         uuid = msg['id']
-        print msg
+        index = msg['index']
         if success:
-            self.next_index[uuid] = msg['index']
+            self.next_index[uuid] = index
+            if self.log.get_commit_index() < index:
+                # if it is already committed, then we don't need to worry
+                # about any of this
+                term = msg['term']
+                index = msg['index']
+                self.log.add_ack(index, term)
+                if self.log.num_acked(index) >= (len(self.peers)/2) + 1 and \
+                   term == self.term:
+                    self.log.commit(index, term)
+                    assert index >= self.commitidx
+                    self.commitidx = index
         else:
             self.next_index[uuid] = msg['index'] - 1
 
@@ -82,10 +92,19 @@ class Server(object):
             self.udp.send(rpc, addr)
             return
         if not logs:
-            # just a heartbeat
+            # just a heartbeat; update some values
+            cidx = msg['commitidx']
+            if cidx > self.commitidx:
+                # don't lower the commit index
+                self.commitidx = cidx
+                self.log.force_commit(cidx)
             return
         for ent in sorted(logs):
             self.log.add(logs[ent])
+        cidx = msg['commitidx']
+        if cidx > self.commitidx:
+            self.commitidx = cidx
+            self.log.force_commit(cidx)
         rpc = self.ae_rpc_reply(self.log.maxindex(), True)
         self.udp.send(rpc, addr)
 
@@ -111,6 +130,7 @@ class Server(object):
             'term': self.term,
             'msgid': msg['id'],
             'committed': False,
+            'acked': 0,  # don't actually ack until we've saved it
             'msg': msg
         }
         self.log.add(logentry)
@@ -168,9 +188,12 @@ class Server(object):
             # won the election
             self.role = 'leader'
             self.next_index = {}
-            for uuid in self.peers:
-                self.next_index[uuid] = self.log.maxindex()
             self.commitidx = self.log.get_commit_index()
+            maxidx = self.log.maxindex()
+            for uuid in self.peers:
+                # just start by pretending everyone is caught up,
+                # they'll let us know if not
+                self.next_index[uuid] = maxidx
 
     def handle_nomessage(self):
         now = time.time()

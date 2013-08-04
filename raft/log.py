@@ -6,6 +6,7 @@ class RaftLog(object):
                 'term': 0,
                 'msgid': '',
                 'committed': True,  # everyone has the null message
+                'acked': 0,
                 'msg': {}
             }
             log = {0: logentry}
@@ -61,9 +62,31 @@ class RaftLog(object):
         msgid = logentry['msgid']
         self.log_by_msgid[msgid] = logentry
 
+    def add_ack(self, index, term):
+        ent = self.log_by_index[index]
+        if ent['term'] != term:
+            return
+        ent['acked'] += 1
+
+    def num_acked(self, index):
+        ent = self.log_by_index[index]
+        return ent['acked']
+
+    def is_committed(self, index, term):
+        ent = self.log_by_index[index]
+        if ent['term'] != term:
+            return False
+        return ent['committed']
+
     def commit(self, index, term):
         ent = self.log_by_index[index]
         assert ent['term'] == term
+        ent['committed'] = True
+
+    def force_commit(self, index):
+        # this is more dangerous; only call it from followers on orders
+        # from the leader
+        ent = self.log_by_index[index]
         ent['committed'] = True
 
     def logs_after_index(self, index):
@@ -74,11 +97,11 @@ class RaftLog(object):
         return logs
 
     def get_commit_index(self):
-        latest = 0
-        for k in sorted(self.log_by_index):
-            if self.log_by_index[k]['committed'] == False:
-                return latest
-            latest = k
+        for k in reversed(sorted(self.log_by_index)):
+            v = self.log_by_index[k]
+            if v['committed']:
+                return v['index']
+        return 0
 
     def exists(self, index, term):
         if self.log_by_index.get(index, {}).get('term', None) == term:
