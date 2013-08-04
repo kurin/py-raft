@@ -7,7 +7,6 @@ import select
 class UDP(object):
     def __init__(self, port):
         self.port = port
-        self.handlers = Event()
 
     def start(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

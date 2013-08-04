@@ -10,8 +10,12 @@ from raft.log import RaftLog
 
 
 class Server(object):
-    def __init__(self, port=9289):
-        self.load()
+    def __init__(self, port=9289, *fakes):
+        if not fakes:
+            self.load()
+        else:
+            self.term, self.voted, log, self.peers, self.uuid = fakes
+            self.log = RaftLog(log)
         self.role = 'follower'
         self.udp = udp.UDP(port)
         self.last_update = time.time()
@@ -25,9 +29,12 @@ class Server(object):
                 self.log.dump(), self.peers, self.uuid)
 
     def run(self):
+        self.udp.start()
         while True:
-            msg, addr = self.udp.recv()
-            if msg is not None:
+            print self.role
+            ans = self.udp.recv()
+            if ans is not None:
+                msg, _ = ans
                 self.handle_message(msg)
             else:
                 self.handle_nomessage()
@@ -45,6 +52,18 @@ class Server(object):
         if not hasattr(self, mname):
             return  # nothing to do
         getattr(self, mname)(msg)
+
+    def handle_msg_follower_ae(self, msg):
+        self.last_update = time.time()
+
+    def handle_msg_candidate_ae(self, msg):
+        # someone else was elected during our candidacy
+        term = msg['term']
+        if term < self.term:
+            # illegitimate, toss it
+            return
+        self.role = 'follower'
+        self.handle_msg_follower_ae()
 
     def handle_msg_candidate_rv(self, msg):
         # don't vote for a different candidate!
@@ -91,6 +110,10 @@ class Server(object):
         if len(self.cronies) - 1 > len(self.peers)/2:
             # won the election
             self.role = 'leader'
+            self.next_index = {}
+            for uuid in self.peers:
+                self.next_index[uuid] = self.log.maxindex()
+            self.commitidx = self.log.get_commit_index()
 
     def handle_nomessage(self):
         now = time.time()
@@ -99,7 +122,7 @@ class Server(object):
             # establish candidacy and run for election
             self.call_election()
         elif self.role == 'candidate' and \
-           now - self.selection_start < self.election_timeout:
+           now - self.election_start < self.election_timeout:
             # we're in an election and haven't won, but the
             # timeout isn't expired.  repoll peers that haven't
             # responded yet
@@ -110,7 +133,12 @@ class Server(object):
             self.call_election()
         elif self.role == 'leader':
             # send a heartbeat
-            pass
+            for uuid in self.peers:
+                if uuid == self.uuid:
+                    continue
+                rpc = self.ae_rpc(uuid)
+                addr = self.peers[uuid]
+                self.udp.send(rpc, addr)
 
     def call_election(self):
         self.term += 1
@@ -133,7 +161,7 @@ class Server(object):
             self.udp.send(rpc, addr)
 
     def rv_rpc(self):
-        log_index, log_term = self.get_max_index_term()
+        log_index, log_term = self.log.get_max_index_term()
         rpc = {
             'type': 'rv',
             'term': self.term,
@@ -159,7 +187,8 @@ class Server(object):
             'term': self.term,
             'id': self.uuid,
             'previdx': previdx,
-            'prevterm': self.log[previdx][1],
+            'prevterm': self.log.get(previdx)[1],
             'entries': append,
             'commitidx': self.commitidx,
         }
+        return msgpack.packb(rpc)

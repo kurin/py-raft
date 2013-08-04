@@ -1,14 +1,22 @@
 class RaftLog(object):
     def __init__(self, log):
+        if not log:
+            log = {0: (0, True, '')}
         self.ldict = log
 
     def dump(self):
         return self.ldict
 
     def get_max_index_term(self):
-        maxindex = max(self.ldict)
+        maxindex = self.maxindex()
         maxterm = self.ldict[maxindex][0]
         return maxindex, maxterm
+
+    def maxindex(self):
+        return max(self.ldict)
+
+    def get(self, idx):
+        return self.ldict.get(idx, None)
 
     def get_commit_index(self):
         latest = 0
