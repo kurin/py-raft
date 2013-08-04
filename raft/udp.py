@@ -5,15 +5,15 @@ import select
 
 
 class UDP(object):
-    def __init__(self, port):
+    def __init__(self, port=0):
         self.port = port
 
     def start(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("", self.port))
 
-    def recv(self):
-        recv, _, _ = select.select([self.sock], [], [], 0.250)
+    def recv(self, timeout=0.25):
+        recv, _, _ = select.select([self.sock], [], [], timeout)
         if recv:
             try:
                 return self.sock.recvfrom(65535)  # max udp size
