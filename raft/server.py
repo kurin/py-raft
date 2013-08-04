@@ -17,6 +17,8 @@ class Server(object):
             self.term, self.voted, log, self.peers, self.uuid = fakes
             self.log = RaftLog(log)
         self.role = 'follower'
+        self.addpeers = set()
+        self.delpeers = set()
         self.udp = udp.UDP(port)
         self.last_update = time.time()
 
@@ -31,7 +33,9 @@ class Server(object):
     def run(self):
         self.udp.start()
         while True:
-            print self.role
+            print self.role, self.log.maxindex()
+            if self.role == 'leader':
+                print self.next_index
             ans = self.udp.recv()
             if ans is not None:
                 msg, addr = ans
@@ -46,8 +50,6 @@ class Server(object):
         msg['src'] = addr
         # no matter what, if our term is old, update and step down
         if term and term > self.term:
-            if self.role == 'candidate':
-                print "we should be voting for the other guy"
             self.term = term
             self.voted = None
             self.role = 'follower'
@@ -62,6 +64,7 @@ class Server(object):
     def handle_msg_leader_ae_reply(self, msg):
         success = msg['success']
         uuid = msg['id']
+        print msg
         if success:
             self.next_index[uuid] = msg['index']
         else:
@@ -96,9 +99,12 @@ class Server(object):
         self.handle_msg_follower_ae(msg)
 
     def handle_msg_follower_cq(self, msg):
-        rpc = self.cr_rdr_rpc()
-        src = msg['src']
-        self.udp.send(rpc, src)
+        try:
+            rpc = self.cr_rdr_rpc()
+            src = msg['src']
+            self.udp.send(rpc, src)
+        except:
+            return
 
     def handle_msg_leader_cq(self, msg):
         logentry = {
@@ -108,7 +114,7 @@ class Server(object):
             'msg': msg
         }
         self.log.add(logentry)
-        rpc = self.cr_rpc(msg['id'], 'ok')
+        rpc = self.cr_rpc(msg['id'], msg['data'])
         src = msg['src']
         self.udp.send(rpc, src)
 

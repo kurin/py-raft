@@ -12,14 +12,20 @@ class RaftClient(object):
     def sendquery(self, addr, query):
         rpc = self.cq_rpc(query)
         self.udp.send(rpc, addr)
-        msg, addr = self.udp.recv(None)  # in reality, have it time out and retry
+        ans = self.udp.recv(0.25)  # in reality, have it time out and retry
+        if not ans:
+            return
+        msg, _ = ans
         msg = msgpack.unpackb(msg)
         if msg['type'] == 'cr_rdr':
             addr = msg['master']
             addr = tuple(addr)
             print "got redirected to %s" % (addr,)
             self.udp.send(rpc, addr)
-            msg, addr = self.udp.recv(None)
+            ans = self.udp.recv(0.25)
+            if not ans:
+                return
+            msg, _ = ans
             msg = msgpack.unpackb(msg)
         return msg['data']
 
