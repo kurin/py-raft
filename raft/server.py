@@ -5,7 +5,10 @@ import random
 import msgpack
 
 import raft.store as store
-import raft.udp as udp
+try:
+    import raft.snake as transport
+except ImportError:
+    import raft.udp as transport
 from raft.log import RaftLog
 
 
@@ -19,7 +22,7 @@ class Server(object):
         self.role = 'follower'
         self.addpeers = set()
         self.delpeers = set()
-        self.udp = udp.UDP(port)
+        self.transport = transport.start(port)
         self.last_update = time.time()
         self.commitidx = 0
 
@@ -32,10 +35,10 @@ class Server(object):
                 self.log.dump(), self.peers, self.uuid)
 
     def run(self):
-        self.udp.start()
+        self.transport.start()
         while True:
             print self.role, self.log.get_commit_index(), self.commitidx, self.term, self.log.maxindex()
-            ans = self.udp.recv()
+            ans = self.transport.recv()
             if ans is not None:
                 msg, addr = ans
                 self.handle_message(msg, addr)
@@ -89,7 +92,7 @@ class Server(object):
         prevterm = msg['prevterm']
         if not self.log.exists(previdx, prevterm):
             rpc = self.ae_rpc_reply(previdx, False)
-            self.udp.send(rpc, addr)
+            self.transport.send(rpc, addr)
             return
         if not logs:
             # just a heartbeat; update some values
@@ -106,7 +109,7 @@ class Server(object):
             self.commitidx = cidx
             self.log.force_commit(cidx)
         rpc = self.ae_rpc_reply(self.log.maxindex(), True)
-        self.udp.send(rpc, addr)
+        self.transport.send(rpc, addr)
 
     def handle_msg_candidate_ae(self, msg):
         # someone else was elected during our candidacy
@@ -121,7 +124,7 @@ class Server(object):
         try:
             rpc = self.cr_rdr_rpc()
             src = msg['src']
-            self.udp.send(rpc, src)
+            self.transport.send(rpc, src)
         except:
             return
 
@@ -136,7 +139,7 @@ class Server(object):
         self.log.add(logentry)
         rpc = self.cr_rpc(msg['id'], msg['data'])
         src = msg['src']
-        self.udp.send(rpc, src)
+        self.transport.send(rpc, src)
 
     def handle_msg_candidate_rv(self, msg):
         # don't vote for a different candidate!
@@ -146,7 +149,7 @@ class Server(object):
             return
         addr = self.peers[uuid]
         rpc = self.rv_rpc_reply(False)
-        self.udp.send(rpc, addr)
+        self.transport.send(rpc, addr)
 
     def handle_msg_follower_rv(self, msg):
         term = msg['term']
@@ -162,7 +165,7 @@ class Server(object):
             # someone with a smaller term wants to get elected
             # as if
             rpc = self.rv_rpc_reply(False)
-            self.udp.send(rpc, addr)
+            self.transport.send(rpc, addr)
             return
         if (self.voted is None or self.voted == uuid) \
             and self.log <= olog:
@@ -171,11 +174,11 @@ class Server(object):
             self.save()
             rpc = self.rv_rpc_reply(True)
             self.last_update = time.time()
-            self.udp.send(rpc, addr)
+            self.transport.send(rpc, addr)
             return
         # we probably voted for somebody else, or the log is old
         rpc = self.rv_rpc_reply(False)
-        self.udp.send(rpc, addr)
+        self.transport.send(rpc, addr)
 
     def handle_msg_candidate_rv_reply(self, msg):
         uuid = msg['id']
@@ -222,7 +225,7 @@ class Server(object):
             logs = self.log.logs_after_index(self.next_index[uuid])
             rpc = self.ae_rpc(uuid, logs)
             addr = self.peers[uuid]
-            self.udp.send(rpc, addr)
+            self.transport.send(rpc, addr)
 
     def call_election(self):
         self.term += 1
@@ -242,7 +245,7 @@ class Server(object):
         rpc = self.rv_rpc()
         for uuid in remaining:
             addr = self.peers[uuid]
-            self.udp.send(rpc, addr)
+            self.transport.send(rpc, addr)
 
     def rv_rpc(self):
         log_index, log_term = self.log.get_max_index_term()

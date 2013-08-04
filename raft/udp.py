@@ -3,6 +3,10 @@ import errno
 import hashlib
 import select
 
+def start(port):
+    udp = UDP(port)
+    udp.start()
+    return udp
 
 class UDP(object):
     def __init__(self, port=0):
