@@ -41,8 +41,8 @@ class Server(object):
     def run(self):
         self.running = True
         while self.running:
-            print self.term, self.role, self.peers.keys()
-            ans = self.transport.recv()
+            print self.term, self.role, self.log.maxindex(), self.commitidx, [x for x in self.all_peers()]
+            ans = self.transport.recv(0.05)
             if ans is not None:
                 msg, addr = ans
                 self.handle_message(msg, addr)
@@ -82,20 +82,22 @@ class Server(object):
                 # about any of this
                 term = msg['term']
                 index = msg['index']
-                self.log.add_ack(index, term)
+                self.log.add_ack(index, term, uuid)
                 if self.log.num_acked(index) >= self.quorum() and \
                    term == self.term:
                     self.log.commit(index, term)
                     assert index >= self.commitidx
                     self.commitidx = index
                     if self.update_uuid:
+                        # if there's an update going on, see if our commit
+                        # is actionable
                         self.possible_update_commit()
         else:
             self.next_index[uuid] = msg['index'] - 1
 
     def handle_msg_follower_ae(self, msg):
         uuid = msg['id']
-        if not self.valid_peers(uuid):
+        if not self.valid_peer(uuid):
             return  # bogus
         self.last_update = time.time()
         self.leader = msg['id']
@@ -222,7 +224,6 @@ class Server(object):
             # in the middle of something *else*, so piss off
             return
         uuid = msg['id']
-        self.update_uuid = uuid
         # got a new update request
         # it will consist of machines to add and to remove
         # here we perform the first phase of the update, by
@@ -230,8 +231,13 @@ class Server(object):
         # existing peer set.
         msg['phase'] = 1
         self.newpeers = msg['config']  # adopt the new config right away
+        if not self.newpeers:
+            return
+        self.update_uuid = uuid
         logentry = log.logentry(self.term, uuid, msg)
         self.log.add(logentry)
+#        self.save()
+#        self.log.add_ack(self.term, 
 
     def handle_nomessage(self):
         now = time.time()
@@ -294,11 +300,16 @@ class Server(object):
         # logs were committed, *and* we are in the middle of an
         # update.  check to see if that was phase 2 of the update,
         # and remove old hosts if so
-        umsg = self.log.get_by_msgid(self.update_uuid)
+        umsg = self.log.get_by_uuid(self.update_uuid)
+        if umsg['index'] > self.commitidx:
+            # isn't yet committed
+            return
         data = umsg['msg']
         if data['phase'] == 2:
             self.oldpeers = None
             self.update_uuid = None
+            if not self.uuid in self.all_peers():
+                self.running = False
 
     def process_possible_update(self, msg):
         if not 'msg' in msg:
@@ -310,10 +321,13 @@ class Server(object):
             return
         phase = data['phase']
         uuid = data['id']
+        if self.update_uuid == uuid:
+            # we've already done this
+            return
         self.update_uuid = uuid  # in case we become leader during this debacle
         if phase == 1:
             self.newpeers = data['config']
-        elif phase == 2:
+        elif phase == 2 and self.newpeers:
             self.oldpeers = self.peers
             self.peers = self.newpeers
             self.newpeers = None
@@ -321,11 +335,12 @@ class Server(object):
     def possible_update_commit(self):
         # we're in an update; see if the update msg
         # has committed, and go to phase 2 or finish
-        umsg = self.log.get_by_uuid(self.update_uuid)
-        if umsg['index'] > self.commitidx:  # it hasn't
+        if not self.log.is_committed_by_uuid(self.update_uuid):
+            # it hasn't
             return
+        umsg = self.log.get_by_uuid(self.update_uuid)
         data = copy.deepcopy(umsg['msg'])
-        if data['phase'] == 1:
+        if data['phase'] == 1 and self.newpeers:
             # the *first* phase of the update has been committed
             # new leaders are guaranteed to be in the union of the
             # old and new configs.  now update the configuration
@@ -381,10 +396,12 @@ class Server(object):
         self.transport.send(rpc, addr)
 
     def quorum(self):
-        np = len(self.peers)
+        peers = set(self.peers)
         if self.newpeers:
-            np += len(self.newpeers)
+            peers.union(set(self.newpeers))
         # oldpeers don't get a vote
+        # use sets because there could be dupes
+        np = len(peers)
         return np/2 + 1
 
     def rv_rpc(self):

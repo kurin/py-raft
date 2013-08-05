@@ -86,6 +86,13 @@ class RaftLog(object):
             return False
         return ent['committed']
 
+    def is_committed_by_uuid(self, uuid):
+        ent = self.log_by_msgid.get(uuid, None)
+        if ent is None:
+            return False
+        index = ent['index']
+        return index <= self.get_commit_index()
+
     def commit(self, index, term):
         ent = self.log_by_index[index]
         assert ent['term'] == term
