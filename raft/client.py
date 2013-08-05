@@ -29,11 +29,24 @@ class RaftClient(object):
             msg = msgpack.unpackb(msg)
         return msg['data']
 
+    def update_hosts(self, new, old, addr):
+        rpc = self.pu_rpc(new, old)
+        self.udp.send(rpc, addr)
+
     def cq_rpc(self, query):
         # client query rpc
         rpc = {
             'type': 'cq',
             'id': uuid.uuid4().hex,
             'data': query
+        }
+        return msgpack.packb(rpc)
+
+    def pu_rpc(self, config):
+        # protocol update rpc
+        rpc = {
+            'type': 'pu',
+            'id': uuid.uuid4().hex,
+            'config': config
         }
         return msgpack.packb(rpc)

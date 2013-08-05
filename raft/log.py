@@ -24,11 +24,17 @@ class RaftLog(object):
         maxterm = self.log_by_index.get(maxindex, {}).get('term', None)
         return maxindex, maxterm
 
+    def has_uuid(self, uuid):
+        return uuid in self.log_by_msgid
+
     def maxindex(self):
         return max(self.log_by_index)
 
     def get(self, idx):
         return self.log_by_index.get(idx, None)
+
+    def get_by_uuid(self, uuid):
+        return self.log_by_msgid.get(uuid, None)
 
     def get_term_of(self, idx):
         le = self.get(idx)
@@ -121,3 +127,13 @@ class RaftLog(object):
 
     def __gt__(self, other):
         return not self <= other
+
+def logentry(term, uuid, msg):
+    rpc = {
+        'term': term,
+        'msgid': uuid,
+        'committed': False,
+        'acked': 0,  # don't actually ack until we've saved it
+        'msg': msg
+    }
+    return rpc
