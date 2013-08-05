@@ -17,5 +17,5 @@ def test_write(monkeypatch):
             {'mr excalibur': ('192.168.0.15', 2995)},
             'conan')
     packed = msgpack.packb(vals)
-    store.write_state(*vals)
+    store.write_state(0, *vals)
     fobj.write.assert_called_with(packed)

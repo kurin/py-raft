@@ -15,6 +15,7 @@ import raft.log as log
 
 class Server(object):
     def __init__(self, port=9289, *fakes):
+        self.port = port
         if not fakes:
             self.load()
         else:
@@ -31,18 +32,18 @@ class Server(object):
         self.oldpeers = None
 
     def load(self):
-        self.term, self.voted, llog, self.peers, self.uuid = store.read_state()
+        self.term, self.voted, llog, self.peers, self.uuid = store.read_state(self.port)
         self.log = log.RaftLog(llog)
 
     def save(self):
-        store.write_state(self.term, self.voted,
+        store.write_state(self.port, self.term, self.voted,
                 self.log.dump(), self.peers, self.uuid)
 
     def run(self):
         self.running = True
         while self.running:
             print self.term, self.role, self.log.maxindex(), self.commitidx, [x for x in self.all_peers()]
-            ans = self.transport.recv(0.05)
+            ans = self.transport.recv(0.1)
             if ans is not None:
                 msg, addr = ans
                 self.handle_message(msg, addr)
@@ -87,11 +88,14 @@ class Server(object):
                    term == self.term:
                     self.log.commit(index, term)
                     assert index >= self.commitidx
+                    oldidx = self.commitidx
                     self.commitidx = index
                     if self.update_uuid:
                         # if there's an update going on, see if our commit
                         # is actionable
                         self.possible_update_commit()
+                    # otherwise just see what messages are now runnable
+                    self.run_committed_messages(oldidx)
         else:
             self.next_index[uuid] = msg['index'] - 1
 
@@ -151,11 +155,7 @@ class Server(object):
             return
 
     def handle_msg_leader_cq(self, msg):
-        logentry = log.logentry(self.term, msg['id'], msg)
-        self.log.add(logentry)
-        rpc = self.cr_rpc(msg['id'], msg['data'])
-        src = msg['src']
-        self.transport.send(rpc, src)
+        self.add_to_log(msg)
 
     def handle_msg_candidate_rv(self, msg):
         # don't vote for a different candidate!
@@ -234,10 +234,7 @@ class Server(object):
         if not self.newpeers:
             return
         self.update_uuid = uuid
-        logentry = log.logentry(self.term, uuid, msg)
-        self.log.add(logentry)
-#        self.save()
-#        self.log.add_ack(self.term, 
+        self.add_to_log(msg)
 
     def handle_nomessage(self):
         now = time.time()
@@ -403,6 +400,26 @@ class Server(object):
         # use sets because there could be dupes
         np = len(peers)
         return np/2 + 1
+
+    def add_to_log(self, msg):
+        uuid = msg['id']
+        logentry = log.logentry(self.term, uuid, msg)
+        index = self.log.add(logentry)
+        self.save()
+        self.log.add_ack(index, self.term, self.uuid)
+
+    def run_committed_messages(self, oldidx):
+        pass
+#        logs = self.log.logs_after_index(oldidx)
+#        for index in sorted(logs):
+#            msg = logs[index]
+#            data = msg['data']
+#            ans = self.state_machine.add(data['id'], data)
+#            if ans is True:
+#                addr = msg['src']
+#                resp = dict(status='success')
+#                rpc = self.cr_rpc(data['id'], 
+#                self.transport.send(
 
     def rv_rpc(self):
         log_index, log_term = self.log.get_max_index_term()

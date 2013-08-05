@@ -67,6 +67,7 @@ class RaftLog(object):
         self.log_by_index[index] = logentry
         msgid = logentry['msgid']
         self.log_by_msgid[msgid] = logentry
+        return index
 
     def add_ack(self, index, term, uuid):
         ent = self.log_by_index[index]
