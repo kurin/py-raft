@@ -107,11 +107,13 @@ class Server(object):
             self.send_to_peer(rpc, self.leader)
             return
         if not logs:
-            # just a heartbeat; update some values
+            # heartbeat
             cidx = msg['commitidx']
             if cidx > self.commitidx:  # don't lower the commit index
                 self.commitidx = cidx
                 self.log.force_commit(cidx)
+                if self.update_uuid:
+                    self.check_update_committed()
             return
         for ent in sorted(logs):
             val = logs[ent]
@@ -121,6 +123,8 @@ class Server(object):
         if cidx > self.commitidx:
             self.commitidx = cidx
             self.log.force_commit(cidx)
+            if self.update_uuid:
+                self.check_update_committed()
         rpc = self.ae_rpc_reply(self.log.maxindex(), True)
         self.send_to_peer(rpc, self.leader)
 
@@ -284,6 +288,17 @@ class Server(object):
         rpc = self.rv_rpc()
         for uuid in remaining:
             self.send_to_peer(rpc, uuid)
+
+    def check_update_committed(self):
+        # we (a follower) just learned that one or more
+        # logs were committed, *and* we are in the middle of an
+        # update.  check to see if that was phase 2 of the update,
+        # and remove old hosts if so
+        umsg = self.log.get_by_msgid(self.update_uuid)
+        data = umsg['msg']
+        if data['phase'] == 2:
+            self.oldpeers = None
+            self.update_uuid = None
 
     def process_possible_update(self, msg):
         if not 'msg' in msg:
