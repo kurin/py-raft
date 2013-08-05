@@ -86,7 +86,9 @@ class RaftLog(object):
     def force_commit(self, index):
         # this is more dangerous; only call it from followers on orders
         # from the leader
-        ent = self.log_by_index[index]
+        ent = self.log_by_index.get(index, None)
+        if ent is None:
+            return
         ent['committed'] = True
 
     def logs_after_index(self, index):

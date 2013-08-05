@@ -5,10 +5,10 @@ import random
 import msgpack
 
 import raft.store as store
-try:
-    import raft.snake as transport
-except ImportError:
-    import raft.udp as transport
+#try:
+#    import raft.snake as transport
+#except ImportError:
+import raft.udp as transport
 from raft.log import RaftLog
 
 
@@ -25,6 +25,7 @@ class Server(object):
         self.transport = transport.start(port)
         self.last_update = time.time()
         self.commitidx = 0
+        self.maxmsgsize = 65536
 
     def load(self):
         self.term, self.voted, log, self.peers, self.uuid = store.read_state()
@@ -37,7 +38,6 @@ class Server(object):
     def run(self):
         self.transport.start()
         while True:
-            print self.role, self.log.get_commit_index(), self.commitidx, self.term, self.log.maxindex()
             ans = self.transport.recv()
             if ans is not None:
                 msg, addr = ans
@@ -225,7 +225,12 @@ class Server(object):
             logs = self.log.logs_after_index(self.next_index[uuid])
             rpc = self.ae_rpc(uuid, logs)
             addr = self.peers[uuid]
-            self.transport.send(rpc, addr)
+            try:
+                self.transport.send(rpc, addr)
+            except transport.TooBig:
+                # the message was too big; try with half the message size
+                self.maxmsgsize /= 2
+                self.send_ae()
 
     def call_election(self):
         self.term += 1
@@ -269,16 +274,26 @@ class Server(object):
 
     def ae_rpc(self, peeruuid, append={}):
         previdx = self.next_index[peeruuid]
-        rpc = {
-            'type': 'ae',
-            'term': self.term,
-            'id': self.uuid,
-            'previdx': previdx,
-            'prevterm': self.log.get_term_of(previdx),
-            'entries': append,
-            'commitidx': self.commitidx,
-        }
-        return msgpack.packb(rpc)
+        while True:  # the only way out is to get your message size down
+            rpc = {
+                'type': 'ae',
+                'term': self.term,
+                'id': self.uuid,
+                'previdx': previdx,
+                'prevterm': self.log.get_term_of(previdx),
+                'entries': append,
+                'commitidx': self.commitidx,
+            }
+            packed = msgpack.packb(rpc)
+            if len(packed) < self.maxmsgsize:
+                # msgsize is acceptable
+                return packed
+            # msgsize is not; pop off the biggest dictionary entry
+            nappend = {}
+            size = len(append)/2
+            for x in sorted(append.keys())[:size]:  # this could be faster
+                nappend[x] = append[x]
+            append = nappend
 
     def ae_rpc_reply(self, index, success):
         rpc = {

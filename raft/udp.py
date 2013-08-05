@@ -8,6 +8,8 @@ def start(port):
     udp.start()
     return udp
 
+class TooBig(Exception): pass
+
 class UDP(object):
     def __init__(self, port=0):
         self.port = port
@@ -28,7 +30,11 @@ class UDP(object):
         try:
             self.sock.sendto(msg, dst)
         except socket.error as e:
-            if e[0] == errno.EPIPE:
+            if e.errno == errno.EMSGSIZE:
+                # hand it upstairs so they can maybe stop dumping such large
+                # packets on us
+                raise TooBig()
+            if e.errno == errno.EPIPE:
                 self.shutdown()
                 self.start()
 
