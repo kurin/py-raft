@@ -56,12 +56,11 @@ class Server(object):
         msg['src'] = addr
         uuid = msg.get('id', None)
         # no matter what, if our term is old, update and step down
-        if term and term > self.term:
+        if term and term > self.term and self.valid_peer(uuid):
             # okay, well, only if it's from a valid source
-            if uuid and (uuid in self.peers or uuid in self.newpeers):
-                self.term = term
-                self.voted = None
-                self.role = 'follower'
+            self.term = term
+            self.voted = None
+            self.role = 'follower'
         mname = 'handle_msg_%s_%s' % (self.role, mtype)
         if not hasattr(self, mname):
             return  # nothing to do
@@ -73,7 +72,7 @@ class Server(object):
     def handle_msg_leader_ae_reply(self, msg):
         success = msg['success']
         uuid = msg['id']
-        if not uuid in self.peers and not uuid in self.newpeers:
+        if not self.valid_peer(uuid):
             return
         index = msg['index']
         if success:
@@ -84,7 +83,7 @@ class Server(object):
                 term = msg['term']
                 index = msg['index']
                 self.log.add_ack(index, term)
-                if self.log.num_acked(index) >= (len(self.peers)/2) + 1 and \
+                if self.log.num_acked(index) >= self.quorum() and \
                    term == self.term:
                     self.log.commit(index, term)
                     assert index >= self.commitidx
@@ -96,19 +95,16 @@ class Server(object):
 
     def handle_msg_follower_ae(self, msg):
         uuid = msg['id']
-        if not uuid in self.peers:
+        if not self.valid_peers(uuid):
             return  # bogus
         self.last_update = time.time()
         self.leader = msg['id']
         logs = msg['entries']
-        addr = self.peers.get(self.leader, None)
-        if not addr:
-            return
         previdx = msg['previdx']
         prevterm = msg['prevterm']
         if not self.log.exists(previdx, prevterm):
             rpc = self.ae_rpc_reply(previdx, False)
-            self.transport.send(rpc, addr)
+            self.send_to_peer(rpc, self.leader)
             return
         if not logs:
             # just a heartbeat; update some values
@@ -126,13 +122,13 @@ class Server(object):
             self.commitidx = cidx
             self.log.force_commit(cidx)
         rpc = self.ae_rpc_reply(self.log.maxindex(), True)
-        self.transport.send(rpc, addr)
+        self.send_to_peer(rpc, self.leader)
 
     def handle_msg_candidate_ae(self, msg):
         # someone else was elected during our candidacy
         term = msg['term']
         uuid = msg['id']
-        if not uuid in self.peers:
+        if not self.valid_peer(uuid):
             return
         if term < self.term:
             # illegitimate, toss it
@@ -161,19 +157,15 @@ class Server(object):
         if self.uuid == uuid:
             # huh
             return
-        if not uuid in self.peers:
-            # who is this?
-            return
-        addr = self.peers.get(uuid, None)
-        if not addr:
+        if not self.valid_peer(uuid):
             return
         rpc = self.rv_rpc_reply(False)
-        self.transport.send(rpc, addr)
+        self.send_to_peer(rpc, uuid)
 
     def handle_msg_follower_rv(self, msg):
         term = msg['term']
         uuid = msg['id']
-        if not uuid in self.peers:
+        if not self.valid_peer(uuid):
             return
         olog = {msg['log_index']: {
                     'index': msg['log_index'],
@@ -181,14 +173,11 @@ class Server(object):
                     'msgid': '',
                     'msg': {}}}
         olog = log.RaftLog(olog)
-        addr = self.peers.get(uuid, None)
-        if not addr:
-            return
         if term < self.term:
             # someone with a smaller term wants to get elected
             # as if
             rpc = self.rv_rpc_reply(False)
-            self.transport.send(rpc, addr)
+            self.send_to_peer(rpc, uuid)
             return
         if (self.voted is None or self.voted == uuid) \
             and self.log <= olog:
@@ -197,28 +186,28 @@ class Server(object):
             self.save()
             rpc = self.rv_rpc_reply(True)
             self.last_update = time.time()
-            self.transport.send(rpc, addr)
+            self.send_to_peer(rpc, uuid)
             return
         # we probably voted for somebody else, or the log is old
         rpc = self.rv_rpc_reply(False)
-        self.transport.send(rpc, addr)
+        self.send_to_peer(rpc, uuid)
 
     def handle_msg_candidate_rv_reply(self, msg):
         uuid = msg['id']
-        if not uuid in self.peers:
+        if not self.valid_peer(uuid):
             return
         voted = msg['voted']
         if voted:
             self.cronies.add(uuid)
         else:
             self.refused.add(uuid)
-        if len(self.cronies) - 1 >= len(self.peers)/2:
+        if len(self.cronies) >= self.quorum():
             # won the election
             self.role = 'leader'
             self.next_index = {}
             self.commitidx = self.log.get_commit_index()
             maxidx = self.log.maxindex()
-            for uuid in self.peers:
+            for uuid in self.all_peers():
                 # just start by pretending everyone is caught up,
                 # they'll let us know if not
                 self.next_index[uuid] = maxidx
@@ -261,15 +250,14 @@ class Server(object):
             self.send_ae()
 
     def send_ae(self):
-        for uuid in self.peers:
-            if uuid == self.uuid:
+        for uuid in self.all_peers():
+            if uuid == self.uuid:  # no selfies
                 continue
             ni = self.next_index.get(uuid, self.log.maxindex())
             logs = self.log.logs_after_index(ni)
             rpc = self.ae_rpc(uuid, logs)
-            addr = self.peers[uuid]
             try:
-                self.transport.send(rpc, addr)
+                self.send_to_peer(rpc, uuid)
             except transport.TooBig:
                 # the message was too big; try with half the message size
                 self.maxmsgsize /= 2
@@ -289,13 +277,13 @@ class Server(object):
 
     def campaign(self):
         voted = self.cronies.union(self.refused)  # everyone who voted
-        remaining = set(self.peers).difference(voted)  # peers who haven't
+        voters = set(self.peers)
+        if self.newpeers:
+            voters = voters.union(set(self.newpeers))
+        remaining = voters.difference(voted)  # peers who haven't
         rpc = self.rv_rpc()
         for uuid in remaining:
-            addr = self.peers.get(uuid, None)
-            if addr is None:
-                continue
-            self.transport.send(rpc, addr)
+            self.send_to_peer(rpc, uuid)
 
     def process_possible_update(self, msg):
         if not 'msg' in msg:
@@ -345,14 +333,14 @@ class Server(object):
                 self.running = False
 
     def all_peers(self):
-        for host, addr in self.peers:
-            yield host, addr
+        for host in self.peers:
+            yield host
         if self.newpeers:
-            for host, addr in self.newpeers:
-                yield host, addr
+            for host in self.newpeers:
+                yield host
         if self.oldpeers:
-            for host, addr in self.oldpeers:
-                yield host, addr
+            for host in self.oldpeers:
+                yield host
 
     def valid_peer(self, uuid):
         if uuid in self.peers:
@@ -370,6 +358,19 @@ class Server(object):
             return self.newpeers[uuid]
         if self.oldpeers and uuid in self.oldpeers:
             return self.oldpeers[uuid]
+
+    def send_to_peer(self, rpc, uuid):
+        addr = self.get_peer_addr(uuid)
+        if not addr:
+            return
+        self.transport.send(rpc, addr)
+
+    def quorum(self):
+        np = len(self.peers)
+        if self.newpeers:
+            np += len(self.newpeers)
+        # oldpeers don't get a vote
+        return np/2 + 1
 
     def rv_rpc(self):
         log_index, log_term = self.log.get_max_index_term()
@@ -439,6 +440,6 @@ class Server(object):
         # at the master
         rpc = {
             'type': 'cr_rdr',
-            'master': self.peers[self.leader]
+            'master': self.get_peer_addr(self.leader)
         }
         return msgpack.packb(rpc)
