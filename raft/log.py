@@ -68,15 +68,17 @@ class RaftLog(object):
         msgid = logentry['msgid']
         self.log_by_msgid[msgid] = logentry
 
-    def add_ack(self, index, term):
+    def add_ack(self, index, term, uuid):
         ent = self.log_by_index[index]
         if ent['term'] != term:
             return
-        ent['acked'] += 1
+        if uuid in ent['acked']:
+            return
+        ent['acked'].append(uuid)
 
     def num_acked(self, index):
         ent = self.log_by_index[index]
-        return ent['acked']
+        return len(ent['acked'])
 
     def is_committed(self, index, term):
         ent = self.log_by_index[index]
@@ -133,7 +135,7 @@ def logentry(term, uuid, msg):
         'term': term,
         'msgid': uuid,
         'committed': False,
-        'acked': 0,  # don't actually ack until we've saved it
+        'acked': [],  # don't actually ack until we've saved it
         'msg': msg
     }
     return rpc
