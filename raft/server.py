@@ -254,6 +254,10 @@ class Server(object):
             # send a heartbeat
             self.send_ae()
 
+    #
+    ## convenience methods
+    #
+
     def send_ae(self):
         for uuid in self.all_peers():
             if uuid == self.uuid:  # no selfies
@@ -438,6 +442,10 @@ class Server(object):
 #                resp = dict(status='success')
 #                rpc = self.cr_rpc(data['id'], 
 #                self.transport.send(
+
+    #
+    ## rpc methods
+    #
 
     def rv_rpc(self):
         log_index, log_term = self.log.get_max_index_term()
