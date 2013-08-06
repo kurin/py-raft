@@ -37,6 +37,50 @@ def mk_rv_rpc_reply(uuid, term, voted):
     }
     return msgpack.packb(rpc)
 
+def arbrpc(**kwargs):
+    return msgpack.packb(kwargs)
+
+def test_handle_message_1(server, monkeypatch):
+    # test that handle_message dispactches correctly
+    server, _, _ = server
+    msg = dict(term=27, id='uuid', type='ae')
+    rpc = arbrpc(**msg)
+    server.role = 'candidate'
+    hmca = Mock()
+    monkeypatch.setattr(server, 'handle_msg_candidate_ae', hmca)
+    server.handle_message(rpc, None)
+    msg['src'] = None  # it should also always pick this up
+    hmca.assert_called_with(msg)
+
+def test_handle_message_2(server):
+    # test that terms get updated correctly
+    server, _, _ = server
+    assert server.role == 'follower'
+    # first, send a message that should *not* update anything
+    msg = dict(term=29, id='uuid', type='null')
+    rpc = arbrpc(**msg)
+    server.handle_message(rpc, None)
+    assert server.term == 27
+    # okay, now send a message that should update
+    server.role = 'leader'
+    msg['id'] = 'otherobj'
+    rpc = arbrpc(**msg)
+    server.handle_message(rpc, None)
+    assert server.term == 29
+    assert server.voted == None
+    assert server.role == 'follower'
+
+def test_handle_message_3(server, monkeypatch):
+    # test that heartbeats go out
+    server, _, _ = server
+    msg = dict(term=27, id='uuid', type='ae')
+    sa = Mock()
+    monkeypatch.setattr(server, 'send_ae', sa)
+    server.role = 'leader'
+    rpc = arbrpc(**msg)
+    server.handle_message(rpc, None)
+    assert sa.called == True
+
 def test_handle_msg_rv_1(server):
     server, _, transport = server
     # we're a candidate, and we get a solicitation from another

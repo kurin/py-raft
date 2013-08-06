@@ -2,13 +2,11 @@ import time
 import uuid
 import copy
 import random
+import logging
 
 import msgpack
 
 import raft.store as store
-#try:
-#    import raft.snake as transport
-#except ImportError:
 import raft.udp as transport
 import raft.log as log
 
@@ -31,6 +29,10 @@ class Server(object):
         self.newpeers = None
         self.oldpeers = None
 
+    #
+    ## startup and state methods
+    #
+
     def load(self):
         self.term, self.voted, llog, self.peers, self.uuid = store.read_state(self.port)
         self.log = log.RaftLog(llog)
@@ -42,7 +44,6 @@ class Server(object):
     def run(self):
         self.running = True
         while self.running:
-            print self.term, self.role, self.log.maxindex(), self.commitidx, [x for x in self.all_peers()]
             ans = self.transport.recv(0.1)
             if ans is not None:
                 msg, addr = ans
@@ -50,7 +51,15 @@ class Server(object):
             else:
                 self.handle_nomessage()
 
+    #
+    ## message handling
+    #
+
     def handle_message(self, msg, addr):
+        # got a new message
+        # update our term if applicable, and dispatch the message
+        # to the appropriate handler.  finally, if we are still
+        # (or have become) the leader, send out heartbeats
         msg = msgpack.unpackb(msg, use_list=False)
         mtype = msg['type']
         term = msg.get('term', None)
@@ -63,14 +72,20 @@ class Server(object):
             self.voted = None
             self.role = 'follower'
         mname = 'handle_msg_%s_%s' % (self.role, mtype)
-        if not hasattr(self, mname):
-            return  # nothing to do
-        getattr(self, mname)(msg)
+        if hasattr(self, mname):
+            getattr(self, mname)(msg)
         if self.role == 'leader':
             # send heartbeats when handling messages as well
             self.send_ae()
 
     def handle_msg_leader_ae_reply(self, msg):
+        # we are a leader who has received an ae ack
+        # if the update was rejected, it's because the follower
+        # has an incorrect log entry, so send an update for that
+        # log entry as well
+        # if the update succeeded, record that in the log and,
+        # if the log has been recorded by enough followers, mark
+        # it committed.
         success = msg['success']
         uuid = msg['id']
         if not self.valid_peer(uuid):
