@@ -99,9 +99,14 @@ class Server(object):
             self.next_index[uuid] = index - 1
 
     def handle_msg_follower_ae(self, msg):
+        # we are a follower who just got an append entries rpc
+        # reset the timeout counter
         uuid = msg['id']
         if not self.valid_peer(uuid):
-            return  # bogus
+            return
+        term = msg['term']
+        if term < self.term:
+            return
         self.last_update = time.time()
         self.leader = msg['id']
         logs = msg['entries']
@@ -111,25 +116,19 @@ class Server(object):
             rpc = self.ae_rpc_reply(previdx, False)
             self.send_to_peer(rpc, self.leader)
             return
+        cidx = msg['commitidx']
+        if cidx > self.commitidx:  # don't lower the commit index
+            self.commitidx = cidx
+            self.log.force_commit(cidx)
+            if self.update_uuid:
+                self.check_update_committed()
         if not logs:
             # heartbeat
-            cidx = msg['commitidx']
-            if cidx > self.commitidx:  # don't lower the commit index
-                self.commitidx = cidx
-                self.log.force_commit(cidx)
-                if self.update_uuid:
-                    self.check_update_committed()
             return
         for ent in sorted(logs):
             val = logs[ent]
             self.process_possible_update(val)
             self.log.add(val)
-        cidx = msg['commitidx']
-        if cidx > self.commitidx:
-            self.commitidx = cidx
-            self.log.force_commit(cidx)
-            if self.update_uuid:
-                self.check_update_committed()
         rpc = self.ae_rpc_reply(self.log.maxindex(), True)
         self.send_to_peer(rpc, self.leader)
 

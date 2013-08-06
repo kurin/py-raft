@@ -117,6 +117,71 @@ def test_handle_msg_leader_ae_reply_1(server, monkeypatch):
     assert server.next_index['otherobj'] == 82
     assert mr.called == True
 
+def test_handle_msg_follower_ae0(server):
+    # return if bad uuid
+    server, _, _ = server
+    msg = dict(id='randomobj')
+    assert server.handle_msg_follower_ae(msg) == None   
+
+def test_handle_msg_follower_ae1(server):
+    # return if term < current term
+    # we test that by making sure that the
+    # server.last_update variable is never updated
+    server, _, _ = server
+    server.last_update = None
+    msg = dict(term=25, id='otherobj', entries=[],
+               previdx=32, prevterm=25, commitidx=5)
+    server.handle_msg_follower_ae(msg)
+    assert server.last_update == None
+
+def test_handle_msg_follower_ae2(server):
+    # now test that server.last_update *IS* updated
+    server, _, _ = server
+    server.last_update = None
+    msg = dict(term=27, id='otherobj', entries=[],
+               previdx=32, prevterm=25, commitidx=5)
+    server.handle_msg_follower_ae(msg)
+    assert server.last_update != None
+
+def test_handle_msg_follower_ae3(server):
+    # failure when log entries are bad
+    server, _, _ = server
+    msg = dict(term=27, id='otherobj', entries=[],
+               previdx=32, prevterm=27, commitidx=5)
+    rpc = server.ae_rpc_reply(32, False)
+    server.send_to_peer = stp = Mock()
+    server.handle_msg_follower_ae(msg)
+    stp.assert_called_with(rpc, 'otherobj')
+
+def test_handle_msg_follower_ae4(server):
+    # commitidx is handled correctly
+    server, _, _ = server
+    msg = dict(term=27, id='otherobj', entries=[],
+               previdx=32, prevterm=25, commitidx=5)
+    server.commitidx = 8
+    server.log.force_commit = fc = Mock()
+    server.handle_msg_follower_ae(msg)
+    assert fc.called == False
+    msg['commitidx'] = 12
+    server.handle_msg_follower_ae(msg)
+    fc.assert_called_with(12)
+
+def test_handle_msg_follower_ae5(server):
+    # each log is recorded
+    server, _, _ = server
+    logs = {
+            34: dict(index=34, term=27, committed=True, msgid='one', msg={}),
+            35: dict(index=35, term=27, committed=True, msgid='two', msg={}),
+            36: dict(index=36, term=27, committed=True, msgid='three', msg={}),
+            37: dict(index=37, term=27, committed=True, msgid='four', msg={}),
+        }
+    msg = dict(term=27, id='otherobj', entries=logs,
+               previdx=33, prevterm=26, commitidx=5)
+    server.log.add = a = Mock()
+    server.handle_msg_follower_ae(msg)
+    for l in logs:
+        a.assert_any_call(logs[l])
+
 def test_handle_msg_rv_1(server):
     server, _, transport = server
     # we're a candidate, and we get a solicitation from another
