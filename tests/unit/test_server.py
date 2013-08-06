@@ -81,6 +81,42 @@ def test_handle_message_3(server, monkeypatch):
     server.handle_message(rpc, None)
     assert sa.called == True
 
+def test_handle_msg_leader_ae_reply_0(server):
+    # bad uuids get rejected
+    server, _, _ = server
+    msg = dict(id='badid')
+    assert server.handle_msg_leader_ae_reply(msg) == None
+    msg['id'] = 'otherobj'
+    with pytest.raises(KeyError):
+        server.handle_msg_leader_ae_reply(msg)
+
+def test_handle_msg_leader_ae_reply_1(server, monkeypatch):
+    # test that failures decease our msg index
+    server, _, _ = server
+    server.next_index = {}
+    server.next_index['otherobj'] = 12
+    msg = dict(id='otherobj', success=False, index=12)
+    server.handle_msg_leader_ae_reply(msg)
+    assert server.next_index['otherobj'] == 11
+
+def test_handle_msg_leader_ae_reply_1(server, monkeypatch):
+    # success updates the msg index
+    server, _, _ = server
+    server.next_index = {}
+    server.next_index['otherobj'] = 12
+    msg = dict(id='otherobj', success=True, index=14)
+    server.handle_msg_leader_ae_reply(msg)
+    server.log = Mock()
+    server.msg_recorded = mr = Mock()
+    server.log.get_commit_index.return_value = 55
+    server.handle_msg_leader_ae_reply(msg)
+    assert server.next_index['otherobj'] == 14
+    assert mr.called == False
+    msg = dict(id='otherobj', success=True, index=82)
+    server.handle_msg_leader_ae_reply(msg)
+    assert server.next_index['otherobj'] == 82
+    assert mr.called == True
+
 def test_handle_msg_rv_1(server):
     server, _, transport = server
     # we're a candidate, and we get a solicitation from another

@@ -86,33 +86,17 @@ class Server(object):
         # if the update succeeded, record that in the log and,
         # if the log has been recorded by enough followers, mark
         # it committed.
-        success = msg['success']
         uuid = msg['id']
         if not self.valid_peer(uuid):
             return
+        success = msg['success']
         index = msg['index']
         if success:
             self.next_index[uuid] = index
             if self.log.get_commit_index() < index:
-                # if it is already committed, then we don't need to worry
-                # about any of this
-                term = msg['term']
-                index = msg['index']
-                self.log.add_ack(index, term, uuid)
-                if self.log.num_acked(index) >= self.quorum() and \
-                   term == self.term:
-                    self.log.commit(index, term)
-                    assert index >= self.commitidx
-                    oldidx = self.commitidx
-                    self.commitidx = index
-                    if self.update_uuid:
-                        # if there's an update going on, see if our commit
-                        # is actionable
-                        self.possible_update_commit()
-                    # otherwise just see what messages are now runnable
-                    self.run_committed_messages(oldidx)
+                self.msg_recorded(msg)
         else:
-            self.next_index[uuid] = msg['index'] - 1
+            self.next_index[uuid] = index - 1
 
     def handle_msg_follower_ae(self, msg):
         uuid = msg['id']
@@ -415,6 +399,26 @@ class Server(object):
         # use sets because there could be dupes
         np = len(peers)
         return np/2 + 1
+
+    def msg_recorded(self, msg):
+        # we're a leader and we just got an ack from
+        # a follower who might have been the one to
+        # commit an entry
+        term = msg['term']
+        index = msg['index']
+        uuid = msg['id']
+        self.log.add_ack(index, term, uuid)
+        if self.log.num_acked(index) >= self.quorum() and term == self.term:
+            self.log.commit(index, term)
+            assert index >= self.commitidx
+            oldidx = self.commitidx
+            self.commitidx = index
+            if self.update_uuid:
+                # if there's an update going on, see if our commit
+                # is actionable
+                self.possible_update_commit()
+            # otherwise just see what messages are now runnable
+            self.run_committed_messages(oldidx)
 
     def add_to_log(self, msg):
         uuid = msg['id']
