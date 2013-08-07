@@ -2,34 +2,32 @@ import uuid
 
 import msgpack
 
-import raft.udp as udp
+import raft.tcp as tcp
 
 class RaftClient(object):
     def __init__(self):
-        self.udp = udp.UDP(0)
-        self.udp.start()
+        self.tcp = tcp.TCP(0, 'client')
+        self.tcp.start()
+        self.tcp.connect(('localhost', 9990))
+        self.leader = 'a'
 
     def sendquery(self, addr, query):
         rpc = self.cq_rpc(query)
-        self.udp.send(rpc, addr)
-
-    def what(self):
-        ans = self.udp.recv(0.05)  # in reality, have it time out and retry
+        self.tcp.send(rpc, self.leader)
+        ans = self.tcp.recv(0.5)
         if not ans:
             return
-        msg, _ = ans
-        msg = msgpack.unpackb(msg)
-        if msg['type'] == 'cr_rdr':
-            addr = msg['master']
-            addr = tuple(addr)
-            print "got redirected to %s" % (addr,)
-            self.udp.send(rpc, addr)
-            ans = self.udp.recv(0.05)
-            if not ans:
-                return
-            msg, _ = ans
-            msg = msgpack.unpackb(msg)
-        return msg['data']
+        for a in ans:
+            uid, msgs = a
+            for msg in msgs:
+                msg = msgpack.unpackb(msg, use_list=False)
+                if msg['type'] == 'cr_rdr':
+                    self.leader = msg['leader']
+                    self.tcp.connect(msg['addr'])
+                    self.tcp.send(rpc, self.leader)
+                    ans = self.tcp.recv(0.5)
+                else:
+                    print msg
 
     def update_hosts(self, config, addr):
         rpc = self.pu_rpc(config)

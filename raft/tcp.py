@@ -72,7 +72,10 @@ class TCP(object):
     def add_unknown(self, conn):
         self.unknowns.add(conn)
         msgsize = struct.pack("!I", len(self.uuid) + struct.calcsize("!I"))
-        conn.send(msgsize + self.uuid)
+        try:
+            conn.send(msgsize + self.uuid)
+        except socket.error:
+            return
         self.read_unknowns()
 
     def read_unknowns(self):
@@ -82,6 +85,7 @@ class TCP(object):
             if uuid:
                 uuid = uuid[0]
                 self.u2c[uuid] = conn
+                self.unknowns.remove(conn)
 
     def read_conn_msg(self, conn, msgnum=0):
         try:

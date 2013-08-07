@@ -47,16 +47,16 @@ class Server(object):
         self.next_index = None
         while self.running:
             print self.role, self.term, self.log.maxindex(), self.next_index
-            ans = self.udp.recv(0.005)
-            if ans is not None:
-                msg, addr = ans
-                self.handle_message(msg, addr)
-            tcpans = self.tcp.recv(0.005)
+            for peer in self.peers:
+                if not peer in self.tcp and peer != self.uuid:
+                    self.tcp.connect(self.peers[peer])
+            tcpans = self.tcp.recv(0.05)
             if tcpans:
                 for peer, msgs in tcpans:
                     for msg in msgs:
                         self.handle_message(msg, peer)
-            self.housekeeping()
+            else:
+                self.housekeeping()
 
     #
     ## message handling
@@ -78,16 +78,16 @@ class Server(object):
             self.term = term
             self.voted = None
             self.role = 'follower'
-        if self.valid_peer(uuid):
+        #if self.valid_peer(uuid):
             # establish a TCP connection to fall back on
             # clients don't meet this check, but they come
             # in over tcp anyway, so.
-            if not uuid in self.tcp:
-                self.tcp.connect(self.get_peer_addr(uuid))
+        #    if not uuid in self.tcp:
+        #        self.tcp.connect(self.get_peer_addr(uuid))
         mname = 'handle_msg_%s_%s' % (self.role, mtype)
         if hasattr(self, mname):
             getattr(self, mname)(msg)
-        if self.role == 'leader':
+        if self.role == 'leader' and isinstance(addr, tuple):
             # send heartbeats when handling messages as well
             self.send_ae()
 
@@ -161,12 +161,15 @@ class Server(object):
         try:
             rpc = self.cr_rdr_rpc()
             src = msg['src']
-            self.udp.send(rpc, src)
+            self.send_to_peer(rpc, src)
         except:
             return
 
     def handle_msg_leader_cq(self, msg):
+        src = msg['src']
         self.add_to_log(msg)
+        rpc = self.cr_rpc_ack(msg['id'])
+        self.send_to_peer(rpc, src)
 
     def handle_msg_candidate_rv(self, msg):
         # don't vote for a different candidate!
@@ -221,6 +224,7 @@ class Server(object):
         if len(self.cronies) >= self.quorum():
             # won the election
             self.role = 'leader'
+            print self.cronies, self.quorum()
             self.next_index = {}
             self.commitidx = self.log.get_commit_index()
             maxidx = self.log.maxindex()
@@ -397,13 +401,13 @@ class Server(object):
             return self.oldpeers[uuid]
 
     def send_to_peer(self, rpc, uuid):
-        if len(rpc) <= self.udp.maxmsgsize and self.valid_peer(uuid):
-            addr = self.get_peer_addr(uuid)
-            if not addr:
-                return
-            self.udp.send(rpc, addr)
-        else:
-            self.tcp.send(rpc, uuid)
+        #if len(rpc) <= self.udp.maxmsgsize and self.valid_peer(uuid):
+        #    addr = self.get_peer_addr(uuid)
+        #    if not addr:
+        #        return
+        #    self.udp.send(rpc, addr)
+        #else:
+        self.tcp.send(rpc, uuid)
 
     def quorum(self):
         peers = set(self.peers)
@@ -511,11 +515,21 @@ class Server(object):
         }
         return msgpack.packb(rpc)
 
+    def cr_rpc_ack(self, qid):
+        # client response RPC
+        # qid = query id, ans is arbitrary data
+        rpc = {
+            'type': 'cr_ack',
+            'id': qid,
+        }
+        return msgpack.packb(rpc)
+
     def cr_rdr_rpc(self):
         # client response redirect; just point them
         # at the master
         rpc = {
             'type': 'cr_rdr',
-            'master': self.get_peer_addr(self.leader)
+            'addr': self.get_peer_addr(self.leader),
+            'leader': self.leader
         }
         return msgpack.packb(rpc)
