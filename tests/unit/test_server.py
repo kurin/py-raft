@@ -1,5 +1,5 @@
 import pytest
-from mock import Mock
+from mock import Mock, MagicMock
 
 import msgpack
 
@@ -7,16 +7,18 @@ import msgpack
 def server(monkeypatch):
     import raft.server as srv
     store = Mock()
-    transport = Mock()
+    udp = Mock()
+    tcp = MagicMock()
     monkeypatch.setattr(srv, 'store', store)
-    monkeypatch.setattr(srv, 'transport', transport)
+    monkeypatch.setattr(srv, 'udp', udp)
+    monkeypatch.setattr(srv, 'tcp', tcp)
     store.read_state.return_value = (27, None,
                 {32: dict(index=32, term=25, committed=True, msgid='one', msg={}),
                  33: dict(index=33, term=26, committed=False, msgid='two', msg={})},
                 {'otherobj': ('1.2.3.4', 5678)},
                 'thisobj')
     server = srv.Server()
-    return server, store, transport
+    return server, store, udp
 
 def mk_rv_rpc(term, uuid, log_index, log_term):
     rpc = {
@@ -183,17 +185,17 @@ def test_handle_msg_follower_ae5(server):
         a.assert_any_call(logs[l])
 
 def test_handle_msg_rv_1(server):
-    server, _, transport = server
+    server, _, udp = server
     # we're a candidate, and we get a solicitation from another
     # candidate in the same term.  do not vote
     server.role = 'candidate'
     msg = mk_rv_rpc(27, 'otherobj', 33, 26)
     rply = mk_rv_rpc_reply('thisobj', 27, False)
     server.handle_message(msg, None)
-    transport.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
+    udp.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rv_2(server):
-    server, _, transport = server
+    server, _, udp = server
     # we're a candidate, and we get a solicitation from another
     # candidate in the next term, with an equal most recent log.
     # bump our term and vote for the other candidate.
@@ -202,10 +204,10 @@ def test_handle_msg_rv_2(server):
     assert server.term == 27
     rply = mk_rv_rpc_reply('thisobj', 28, True)  # term bumpted and voted
     server.handle_message(msg, None)
-    transport.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
+    udp.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rv_3(server):
-    server, _, transport = server
+    server, _, udp = server
     # again a candidate, this time we get an old solicitation
     # ignore it, *even though* its term is greater than ours
     server.role = 'candidate'
@@ -213,17 +215,17 @@ def test_handle_msg_rv_3(server):
     assert server.term == 27
     rply = mk_rv_rpc_reply('thisobj', 28, False)
     server.handle_message(msg, None)
-    transport.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
+    udp.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rv_4(server):
-    server, _, transport = server
+    server, _, udp = server
     # reject candidates whose terms are less than ours
     server.role = 'candidate'
     msg = mk_rv_rpc(26, 'otherobj', 33, 26)
     assert server.term == 27
     rply = mk_rv_rpc_reply('thisobj', 27, False)
     server.handle_message(msg, None)
-    transport.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
+    udp.start().send.assert_called_with(rply, ('1.2.3.4', 5678))
 
 def test_handle_msg_rev_reply_1(server):
     server, _, _ = server

@@ -6,6 +6,11 @@ import select
 
 from raft.bijectivemap import create_map
 
+def start(port, uuid):
+    tcp = TCP(port, uuid)
+    tcp.start()
+    return tcp
+
 class TCP(object):
     def __init__(self, port, uuid):
         self.port = port
@@ -14,6 +19,9 @@ class TCP(object):
         self.data = {}
         self.unknowns = set()
         self.uuid = uuid
+
+    def __contains__(self, uuid):
+        return uuid in self.u2c
 
     def start(self):
         self.running = True
@@ -50,7 +58,7 @@ class TCP(object):
                 if e.errno == errno.ECONNABORTED:
                     continue
 
-    def read(self, timeout=0.25):
+    def recv(self, timeout=0.25):
         recv, _, _ = select.select(self.c2u.keys(), [], [], timeout)
         rcvd = []
         for conn in recv:
@@ -68,14 +76,26 @@ class TCP(object):
         self.read_unknowns()
 
     def read_unknowns(self):
-        recv, _, _ = select.select(list(self.unknowns), [], [], 0.01)
+        recv, _, _ = select.select(list(self.unknowns), [], [], 0.001)
         for conn in recv:
-            uuid = self.read_conn_msg(conn, 1)[0]
-            if uuid is not None:
+            uuid = self.read_conn_msg(conn, 1)
+            if uuid:
+                uuid = uuid[0]
                 self.u2c[uuid] = conn
 
     def read_conn_msg(self, conn, msgnum=0):
-        data = conn.recv(4092)
+        try:
+            data = conn.recv(4092)
+        except socket.error:
+            self.remconn(conn)
+            return
+        if data == '':
+            self.remconn(conn)
+            if conn in self.c2u:
+                del self.c2u[conn]
+            if conn in self.data:
+                del self.data[conn]
+            return
         buff = self.data.get(conn, '')
         buff += data
         self.data[conn] = buff
@@ -103,13 +123,22 @@ class TCP(object):
 
     def send(self, msg, uuid):
         msgsize = struct.pack("!I", len(msg) + struct.calcsize("!I"))
-        conn = self.u2c[uuid]
+        try:
+            conn = self.u2c[uuid]
+        except KeyError:
+            return
         try:
             conn.send(msgsize + msg)
         except socket.error as e:
             if e.errno == errno.EPIPE:
                 addr = conn.getsockname()
                 self.connect(addr)
+
+    def remconn(self, conn):
+        if conn in self.c2u:
+            del self.c2u[conn]
+        if conn in self.data:
+            del self.data[conn]
 
     def shutdown(self):
         try:

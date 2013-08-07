@@ -7,7 +7,8 @@ import logging
 import msgpack
 
 import raft.store as store
-import raft.udp as transport
+import raft.udp as udp
+import raft.tcp as tcp
 import raft.log as log
 
 
@@ -20,10 +21,10 @@ class Server(object):
             self.term, self.voted, llog, self.peers, self.uuid = fakes
             self.log = log.RaftLog(llog)
         self.role = 'follower'
-        self.transport = transport.start(port)
+        self.udp = udp.start(port)
+        self.tcp = tcp.start(port, self.uuid)
         self.last_update = time.time()
         self.commitidx = 0
-        self.maxmsgsize = 65536
         self.update_uuid = None
         self.leader = None
         self.newpeers = None
@@ -43,13 +44,19 @@ class Server(object):
 
     def run(self):
         self.running = True
+        self.next_index = None
         while self.running:
-            ans = self.transport.recv(0.1)
+            print self.role, self.term, self.log.maxindex(), self.next_index
+            ans = self.udp.recv(0.005)
             if ans is not None:
                 msg, addr = ans
                 self.handle_message(msg, addr)
-            else:
-                self.handle_nomessage()
+            tcpans = self.tcp.recv(0.005)
+            if tcpans:
+                for peer, msgs in tcpans:
+                    for msg in msgs:
+                        self.handle_message(msg, peer)
+            self.housekeeping()
 
     #
     ## message handling
@@ -71,6 +78,12 @@ class Server(object):
             self.term = term
             self.voted = None
             self.role = 'follower'
+        if self.valid_peer(uuid):
+            # establish a TCP connection to fall back on
+            # clients don't meet this check, but they come
+            # in over tcp anyway, so.
+            if not uuid in self.tcp:
+                self.tcp.connect(self.get_peer_addr(uuid))
         mname = 'handle_msg_%s_%s' % (self.role, mtype)
         if hasattr(self, mname):
             getattr(self, mname)(msg)
@@ -148,7 +161,7 @@ class Server(object):
         try:
             rpc = self.cr_rdr_rpc()
             src = msg['src']
-            self.transport.send(rpc, src)
+            self.udp.send(rpc, src)
         except:
             return
 
@@ -234,7 +247,7 @@ class Server(object):
         self.update_uuid = uuid
         self.add_to_log(msg)
 
-    def handle_nomessage(self):
+    def housekeeping(self):
         now = time.time()
         if now - self.last_update > 0.5 and self.role == 'follower':
             # got no heartbeats; leader is probably dead
@@ -265,12 +278,7 @@ class Server(object):
             ni = self.next_index.get(uuid, self.log.maxindex())
             logs = self.log.logs_after_index(ni)
             rpc = self.ae_rpc(uuid, logs)
-            try:
-                self.send_to_peer(rpc, uuid)
-            except transport.TooBig:
-                # the message was too big; try with half the message size
-                self.maxmsgsize /= 2
-                self.send_ae()
+            self.send_to_peer(rpc, uuid)
 
     def call_election(self):
         self.term += 1
@@ -280,7 +288,7 @@ class Server(object):
         self.refused = set()
         self.cronies.add(self.uuid)
         self.election_start = time.time()
-        self.election_timeout = 0.5 * random.random() + 0.5
+        self.election_timeout = 0.15 * random.random() + 0.15
         self.role = 'candidate'
         self.campaign()
 
@@ -389,10 +397,13 @@ class Server(object):
             return self.oldpeers[uuid]
 
     def send_to_peer(self, rpc, uuid):
-        addr = self.get_peer_addr(uuid)
-        if not addr:
-            return
-        self.transport.send(rpc, addr)
+        if len(rpc) <= self.udp.maxmsgsize and self.valid_peer(uuid):
+            addr = self.get_peer_addr(uuid)
+            if not addr:
+                return
+            self.udp.send(rpc, addr)
+        else:
+            self.tcp.send(rpc, uuid)
 
     def quorum(self):
         peers = set(self.peers)
@@ -441,7 +452,7 @@ class Server(object):
 #                addr = msg['src']
 #                resp = dict(status='success')
 #                rpc = self.cr_rpc(data['id'], 
-#                self.transport.send(
+#                self.udp.send(
 
     #
     ## rpc methods
@@ -469,26 +480,16 @@ class Server(object):
 
     def ae_rpc(self, peeruuid, append={}):
         previdx = self.next_index.get(peeruuid, self.log.maxindex())
-        while True:  # the only way out is to get your message size down
-            rpc = {
-                'type': 'ae',
-                'term': self.term,
-                'id': self.uuid,
-                'previdx': previdx,
-                'prevterm': self.log.get_term_of(previdx),
-                'entries': append,
-                'commitidx': self.commitidx,
-            }
-            packed = msgpack.packb(rpc)
-            if len(packed) < self.maxmsgsize:
-                # msgsize is acceptable
-                return packed
-            # msgsize is not; pop off the biggest dictionary entry
-            nappend = {}
-            size = len(append)/2
-            for x in sorted(append.keys())[:size]:  # this could be faster
-                nappend[x] = append[x]
-            append = nappend
+        rpc = {
+            'type': 'ae',
+            'term': self.term,
+            'id': self.uuid,
+            'previdx': previdx,
+            'prevterm': self.log.get_term_of(previdx),
+            'entries': append,
+            'commitidx': self.commitidx,
+        }
+        return msgpack.packb(rpc)
 
     def ae_rpc_reply(self, index, success):
         rpc = {

@@ -6,13 +6,15 @@ import raft.udp as udp
 
 class RaftClient(object):
     def __init__(self):
-        self.udp = udp.UDP()
+        self.udp = udp.UDP(0)
         self.udp.start()
 
     def sendquery(self, addr, query):
         rpc = self.cq_rpc(query)
         self.udp.send(rpc, addr)
-        ans = self.udp.recv(0.25)  # in reality, have it time out and retry
+
+    def what(self):
+        ans = self.udp.recv(0.05)  # in reality, have it time out and retry
         if not ans:
             return
         msg, _ = ans
@@ -22,7 +24,7 @@ class RaftClient(object):
             addr = tuple(addr)
             print "got redirected to %s" % (addr,)
             self.udp.send(rpc, addr)
-            ans = self.udp.recv(0.25)
+            ans = self.udp.recv(0.05)
             if not ans:
                 return
             msg, _ = ans
