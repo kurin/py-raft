@@ -22,6 +22,8 @@ class RaftClient(object):
             for msg in msgs:
                 msg = msgpack.unpackb(msg, use_list=False)
                 if msg['type'] == 'cr_rdr':
+                    if not msg['addr']:
+                        return
                     self.leader = msg['leader']
                     self.tcp.connect(msg['addr'])
                     self.tcp.send(rpc, self.leader)
@@ -31,7 +33,7 @@ class RaftClient(object):
 
     def update_hosts(self, config, addr):
         rpc = self.pu_rpc(config)
-        self.udp.send(rpc, addr)
+        self.tcp.send(rpc, addr)
 
     def cq_rpc(self, query):
         # client query rpc
