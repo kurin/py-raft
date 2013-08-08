@@ -31,9 +31,9 @@ class RaftClient(object):
                 else:
                     print msg
 
-    def update_hosts(self, config, addr):
+    def update_hosts(self, config):
         rpc = self.pu_rpc(config)
-        self.tcp.send(rpc, addr)
+        self.tcp.send(rpc, self.leader)
 
     def cq_rpc(self, query):
         # client query rpc

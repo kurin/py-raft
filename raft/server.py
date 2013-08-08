@@ -48,7 +48,7 @@ class Server(object):
             for peer in self.peers:
                 if not peer in self.tcp and peer != self.uuid:
                     self.tcp.connect(self.peers[peer])
-            tcpans = self.tcp.recv(0.1)
+            tcpans = self.tcp.recv(0.25)
             if tcpans:
                 for peer, msgs in tcpans:
                     for msg in msgs:
@@ -357,8 +357,10 @@ class Server(object):
             logentry = log.logentry(self.term, newid, data)
             self.log.add(logentry)
         else:
-            # the *second* phase is now committed.  drop
+            # the *second* phase is now committed.  tell all our
+            # current peers about the successful commit, drop
             # the old config entirely and, if necessary, step down
+            self.send_ae()  # send this to peers who might be about to dispeer
             self.oldpeers = None
             self.update_uuid = None
             if not self.uuid in self.peers:
