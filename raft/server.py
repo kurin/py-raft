@@ -151,7 +151,7 @@ class Server(object):
 
     def handle_msg_follower_cq(self, msg):
         try:
-            rpc = self.cr_rdr_rpc()
+            rpc = self.cr_rdr_rpc(msg['id'])
             src = msg['src']
             self.send_to_peer(rpc, src)
         except:
@@ -501,11 +501,12 @@ class Server(object):
         }
         return msgpack.packb(rpc)
 
-    def cr_rdr_rpc(self):
+    def cr_rdr_rpc(self, msgid):
         # client response redirect; just point them
         # at the master
         rpc = {
             'type': 'cr_rdr',
+            'id': msgid,
             'addr': self.get_peer_addr(self.leader),
             'leader': self.leader
         }

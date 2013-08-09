@@ -4,51 +4,74 @@ import msgpack
 
 import raft.tcp as tcp
 
+class NoConnection(Exception): pass
+
 class RaftClient(object):
-    def __init__(self):
+    def __init__(self, server):
         self.tcp = tcp.TCP(0, 'client')
         self.tcp.start()
-        self.tcp.connect(('localhost', 9990))
-        self.leader = 'a'
+        self.msgs = {}
+        self.tcp.connect(server)
+        if not self.tcp.u2c:
+            # wait 2 seconds to connect
+            self.tcp.recv(0.5)
+        if not self.tcp.u2c:
+            raise NoConnection
+        self.leader = self.tcp.u2c.keys()[0]
 
-    def sendquery(self, addr, query):
-        rpc = self.cq_rpc(query)
+    def _send(self, rpc, msgid):
         self.tcp.send(rpc, self.leader)
-        ans = self.tcp.recv(0.5)
+        msgids = self.poll(0.5)
+        if not msgids or not msgid in msgids:
+            return #  XXX put real recovery logic here
+        msg = self.msgs[msgid][0]
+        if msg['type'] == 'cr_rdr':
+            self.leader = msg['leader']
+            self.tcp.connect(msg['addr'])
+            del self.msgs[msgid]
+            return self._send(rpc, msgid)
+
+    def poll(self, timeout=0):
+        ans = self.tcp.recv(timeout)
         if not ans:
             return
-        for a in ans:
-            uid, msgs = a
+        msgids = set()
+        for _, msgs in ans:
             for msg in msgs:
                 msg = msgpack.unpackb(msg, use_list=False)
-                if msg['type'] == 'cr_rdr':
-                    if not msg['addr']:
-                        return
-                    self.leader = msg['leader']
-                    self.tcp.connect(msg['addr'])
-                    self.tcp.send(rpc, self.leader)
-                    ans = self.tcp.recv(0.5)
-                else:
-                    print msg
+                msgid = msg['id']
+                msgids.add(msgid)
+                ums = self.msgs.get(msgid, [])
+                ums.append(msg)
+                self.msgs[msgid] = ums
+        return msgids
+
+    def send(self, data):
+        msgid = uuid.uuid4().hex
+        rpc = self.cq_rpc(data, msgid)
+        self._send(rpc, msgid)
+        return msgid
 
     def update_hosts(self, config):
-        rpc = self.pu_rpc(config)
-        self.tcp.send(rpc, self.leader)
+        msgid = uuid.uuid4().hex
+        rpc = self.pu_rpc(config, msgid)
+        self._send(rpc, msgid)
+        return msgid
 
-    def cq_rpc(self, query):
+    def cq_rpc(self, data, msgid):
         # client query rpc
         rpc = {
             'type': 'cq',
-            'id': uuid.uuid4().hex,
-            'data': query
+            'id': msgid,
+            'data': data
         }
         return msgpack.packb(rpc)
 
-    def pu_rpc(self, config):
+    def pu_rpc(self, config, msgid):
         # protocol update rpc
         rpc = {
             'type': 'pu',
-            'id': uuid.uuid4().hex,
+            'id': msgid,
             'config': config
         }
         return msgpack.packb(rpc)

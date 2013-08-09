@@ -18,6 +18,7 @@ class TCP(object):
         self.c2u, self.u2c = create_map()
         self.data = {}
         self.unknowns = set()
+        self.a2c, self.c2a = create_map()
         self.uuid = uuid
 
     def __contains__(self, uuid):
@@ -39,12 +40,17 @@ class TCP(object):
         thread.start_new_thread(self.accept, ())
 
     def connect(self, addr):
+        if addr in self.a2c:
+            return
         conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.a2c[addr] = conn
         try:
             conn.connect(addr)
         except socket.error as e:
+            del self.a2c[addr]
             if e.errno == errno.ECONNREFUSED:
                 return None
+        conn.setblocking(0)
         self.add_unknown(conn)
         return True
 
@@ -58,7 +64,7 @@ class TCP(object):
                 if e.errno == errno.ECONNABORTED:
                     continue
 
-    def recv(self, timeout=0.25):
+    def recv(self, timeout=0):
         recv, _, _ = select.select(self.c2u.keys(), [], [], timeout)
         rcvd = []
         for conn in recv:
@@ -73,19 +79,26 @@ class TCP(object):
         self.unknowns.add(conn)
         msgsize = struct.pack("!I", len(self.uuid) + struct.calcsize("!I"))
         try:
-            conn.send(msgsize + self.uuid)
+            sent = 0
+            msg = msgsize + self.uuid
+            while sent < len(msg):
+                sent += conn.send(msg[sent:], socket.MSG_DONTWAIT)
         except socket.error:
             return
         self.read_unknowns()
 
     def read_unknowns(self):
-        recv, _, _ = select.select(list(self.unknowns), [], [], 0.001)
+        recv, _, _ = select.select(list(self.unknowns), [], [], 0)
         for conn in recv:
             uuid = self.read_conn_msg(conn, 1)
             if uuid:
                 uuid = uuid[0]
                 self.u2c[uuid] = conn
                 self.unknowns.remove(conn)
+                try:
+                    del self.c2a[conn]
+                except KeyError:
+                    pass  # we didn't initiate
 
     def read_conn_msg(self, conn, msgnum=0):
         try:
@@ -132,7 +145,10 @@ class TCP(object):
         except KeyError:
             return
         try:
-            conn.send(msgsize + msg)
+            sent = 0
+            msg = msgsize + msg
+            while sent < len(msg):
+                sent += conn.send(msg[sent:], socket.MSG_DONTWAIT)
         except socket.error as e:
             if e.errno == errno.EPIPE:
                 addr = conn.getsockname()
