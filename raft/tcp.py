@@ -44,13 +44,14 @@ class TCP(object):
             return
         conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.a2c[addr] = conn
+        conn.setblocking(0)
         try:
+            print addr
             conn.connect(addr)
         except socket.error as e:
             del self.a2c[addr]
             if e.errno == errno.ECONNREFUSED:
                 return None
-        conn.setblocking(0)
         self.add_unknown(conn)
         return True
 

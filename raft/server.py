@@ -7,7 +7,7 @@ import logging
 import msgpack
 
 import raft.store as store
-import raft.tcp as tcp
+import raft.tcp as channel
 import raft.log as log
 
 
@@ -20,7 +20,7 @@ class Server(object):
             self.term, self.voted, llog, self.peers, self.uuid = fakes
             self.log = log.RaftLog(llog)
         self.role = 'follower'
-        self.tcp = tcp.start(port, self.uuid)
+        self.channel = channel.start(port, self.uuid)
         self.last_update = time.time()
         self.commitidx = 0
         self.update_uuid = None
@@ -44,13 +44,13 @@ class Server(object):
         self.running = True
         self.next_index = None
         while self.running:
-            print self.uuid, self.role, self.term, self.log.maxindex(), self.tcp.u2c.keys(), self.next_index
+            print self.uuid, self.role, self.term, self.log.maxindex(), self.channel.u2c.keys(), self.next_index
             for peer in self.peers:
-                if not peer in self.tcp and peer != self.uuid:
-                    self.tcp.connect(self.peers[peer])
-            tcpans = self.tcp.recv(0.25)
-            if tcpans:
-                for peer, msgs in tcpans:
+                if not peer in self.channel and peer != self.uuid:
+                    self.channel.connect(self.peers[peer])
+            channelans = self.channel.recv(0.25)
+            if channelans:
+                for peer, msgs in channelans:
                     for msg in msgs:
                         self.handle_message(msg, peer)
             else:
@@ -394,7 +394,7 @@ class Server(object):
             return self.oldpeers[uuid]
 
     def send_to_peer(self, rpc, uuid):
-        self.tcp.send(rpc, uuid)
+        self.channel.send(rpc, uuid)
 
     def quorum(self):
         peers = set(self.peers)
