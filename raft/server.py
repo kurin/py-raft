@@ -65,7 +65,10 @@ class Server(object):
         # update our term if applicable, and dispatch the message
         # to the appropriate handler.  finally, if we are still
         # (or have become) the leader, send out heartbeats
-        msg = msgpack.unpackb(msg, use_list=False)
+        try:
+            msg = msgpack.unpackb(msg, use_list=False)
+        except UnpackException:
+            return
         mtype = msg['type']
         term = msg.get('term', None)
         msg['src'] = addr
@@ -79,8 +82,7 @@ class Server(object):
         mname = 'handle_msg_%s_%s' % (self.role, mtype)
         if hasattr(self, mname):
             getattr(self, mname)(msg)
-        if self.role == 'leader':
-            # send heartbeats when handling messages as well
+        if self.role == 'leader' and time.time() - self.last_update > 0.3:
             self.send_ae()
 
     def handle_msg_leader_ae_reply(self, msg):
@@ -267,6 +269,7 @@ class Server(object):
     #
 
     def send_ae(self):
+        self.last_update = time.time()
         for uuid in self.all_peers():
             if uuid == self.uuid:  # no selfies
                 continue
@@ -504,6 +507,9 @@ class Server(object):
     def cr_rdr_rpc(self, msgid):
         # client response redirect; just point them
         # at the master
+        if not self.leader:
+            # we don't know where to send them
+            raise RuntimeError
         rpc = {
             'type': 'cr_rdr',
             'id': msgid,

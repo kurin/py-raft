@@ -27,6 +27,7 @@ class RaftClient(object):
         msg = self.msgs[msgid][0]
         if msg['type'] == 'cr_rdr':
             self.leader = msg['leader']
+            print "redirected to %s! %s" % (self.leader, msg['addr'])
             self.tcp.connect(msg['addr'])
             del self.msgs[msgid]
             return self._send(rpc, msgid)

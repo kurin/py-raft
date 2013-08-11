@@ -46,7 +46,6 @@ class TCP(object):
         self.a2c[addr] = conn
         conn.setblocking(0)
         try:
-            print addr
             conn.connect(addr)
         except socket.error as e:
             del self.a2c[addr]
