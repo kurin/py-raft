@@ -103,7 +103,11 @@ class Server(object):
             if self.log.get_commit_index() < index:
                 self.msg_recorded(msg)
         else:
-            self.next_index[uuid] = 0
+            oldidx = self.next_index.get(uuid, 0)
+            diff = self.log.maxindex() - oldidx
+            diff = max(diff, 1)
+            oldidx -= diff
+            self.next_index[uuid] = max(oldidx, 0)
 
     def handle_msg_follower_ae(self, msg):
         # we are a follower who just got an append entries rpc
