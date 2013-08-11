@@ -36,6 +36,9 @@ class RaftLog(object):
     def get_by_uuid(self, uuid):
         return self.log_by_msgid.get(uuid, None)
 
+    def get_by_index(self, index):
+        return self.log_by_index.get(index, None)
+
     def get_term_of(self, idx):
         le = self.get(idx)
         return le['term']
@@ -71,8 +74,6 @@ class RaftLog(object):
 
     def add_ack(self, index, term, uuid):
         ent = self.log_by_index[index]
-        if ent['term'] != term:
-            return
         if uuid in ent['acked']:
             return
         ent['acked'].append(uuid)
@@ -110,7 +111,7 @@ class RaftLog(object):
     def logs_after_index(self, index):
         last = self.maxindex()
         logs = {}
-        for x in range(index, last):
+        for x in range(index, min(last, index + 50)):
             logs[x+1] = self.log_by_index[x+1]
         return logs
 

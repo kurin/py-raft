@@ -77,6 +77,7 @@ def test_handle_message_3(server, monkeypatch):
     sa = Mock()
     monkeypatch.setattr(server, 'send_ae', sa)
     server.role = 'leader'
+    server.last_update = 0
     rpc = arbrpc(**msg)
     server.handle_message(rpc, None)
     assert sa.called == True
@@ -148,7 +149,7 @@ def test_handle_msg_follower_ae3(server):
     server, _, _ = server
     msg = dict(term=27, id='otherobj', entries=[],
                previdx=32, prevterm=27, commitidx=5)
-    rpc = server.ae_rpc_reply(32, False)
+    rpc = server.ae_rpc_reply(32, 27, False)
     server.send_to_peer = stp = Mock()
     server.handle_msg_follower_ae(msg)
     stp.assert_called_with(rpc, 'otherobj')

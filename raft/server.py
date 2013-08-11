@@ -44,11 +44,11 @@ class Server(object):
         self.running = True
         self.next_index = None
         while self.running:
-            print self.uuid, self.role, self.term, self.log.maxindex(), self.channel.u2c.keys(), self.next_index
+            print self.role, self.term, self.commitidx, self.log.get_commit_index(), self.log.maxindex(), self.next_index
             for peer in self.peers:
                 if not peer in self.channel and peer != self.uuid:
                     self.channel.connect(self.peers[peer])
-            channelans = self.channel.recv(0.25)
+            channelans = self.channel.recv(0.15)
             if channelans:
                 for peer, msgs in channelans:
                     for msg in msgs:
@@ -67,7 +67,7 @@ class Server(object):
         # (or have become) the leader, send out heartbeats
         try:
             msg = msgpack.unpackb(msg, use_list=False)
-        except UnpackException:
+        except msgpack.UnpackException:
             return
         mtype = msg['type']
         term = msg.get('term', None)
@@ -120,7 +120,7 @@ class Server(object):
         previdx = msg['previdx']
         prevterm = msg['prevterm']
         if not self.log.exists(previdx, prevterm):
-            rpc = self.ae_rpc_reply(previdx, False)
+            rpc = self.ae_rpc_reply(previdx, prevterm, False)
             self.send_to_peer(rpc, self.leader)
             return
         cidx = msg['commitidx']
@@ -136,7 +136,8 @@ class Server(object):
             val = logs[ent]
             self.process_possible_update(val)
             self.log.add(val)
-        rpc = self.ae_rpc_reply(self.log.maxindex(), True)
+        maxmsg = self.log.get_by_index(self.log.maxindex())
+        rpc = self.ae_rpc_reply(maxmsg['index'], maxmsg['term'], True)
         self.send_to_peer(rpc, self.leader)
 
     def handle_msg_candidate_ae(self, msg):
@@ -286,7 +287,7 @@ class Server(object):
         self.refused = set()
         self.cronies.add(self.uuid)
         self.election_start = time.time()
-        self.election_timeout = 0.15 * random.random() + 0.15
+        self.election_timeout = 0.5 * random.random() + 0.5
         self.role = 'candidate'
         self.campaign()
 
@@ -475,10 +476,10 @@ class Server(object):
         }
         return msgpack.packb(rpc)
 
-    def ae_rpc_reply(self, index, success):
+    def ae_rpc_reply(self, index, term, success):
         rpc = {
             'type': 'ae_reply',
-            'term': self.term,
+            'term': term,
             'id': self.uuid,
             'index': index,
             'success': success

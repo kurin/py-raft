@@ -12,6 +12,8 @@ def start(port, uuid):
     return tcp
 
 class TCP(object):
+    greeting = 'howdy!'
+
     def __init__(self, port, uuid):
         self.port = port
         self.connections = {}
@@ -28,22 +30,21 @@ class TCP(object):
         self.running = True
         self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            self.srv.bind(("", self.port))
+        self.srv.bind(("", self.port))
         thread.start_new_thread(self.accept, ())
 
     def connect(self, addr):
         if addr in self.a2c:
             return
         conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.a2c[addr] = conn
-        conn.setblocking(0)
         try:
             conn.connect(addr)
         except socket.error as e:
-            del self.a2c[addr]
             if e.errno == errno.ECONNREFUSED:
                 return None
+            raise
+        conn.setblocking(0)
+        self.a2c[addr] = conn
         self.add_unknown(conn)
         return True
 
@@ -52,6 +53,8 @@ class TCP(object):
         while self.running:
             try:
                 conn, addr = self.srv.accept()
+                self.a2c[addr] = conn
+                conn.setblocking(0)
                 self.add_unknown(conn)
             except socket.error as e:
                 if e.errno == errno.ECONNABORTED:
@@ -70,13 +73,15 @@ class TCP(object):
 
     def add_unknown(self, conn):
         self.unknowns.add(conn)
-        msgsize = struct.pack("!I", len(self.uuid) + struct.calcsize("!I"))
+        msgsize = struct.pack("!I", len(self.greeting) + \
+                              len(self.uuid) + struct.calcsize("!I"))
         try:
             sent = 0
-            msg = msgsize + self.uuid
+            msg = msgsize + self.greeting + self.uuid
             while sent < len(msg):
                 sent += conn.send(msg[sent:], socket.MSG_DONTWAIT)
         except socket.error:
+            self.unknowns.remove(conn)
             return
         self.read_unknowns()
 
@@ -86,12 +91,10 @@ class TCP(object):
             uuid = self.read_conn_msg(conn, 1)
             if uuid:
                 uuid = uuid[0]
+                assert uuid.startswith(self.greeting)
+                uuid = uuid[len(self.greeting):]
                 self.u2c[uuid] = conn
                 self.unknowns.remove(conn)
-                try:
-                    del self.c2a[conn]
-                except KeyError:
-                    pass  # we didn't initiate
 
     def read_conn_msg(self, conn, msgnum=0):
         try:
@@ -150,6 +153,8 @@ class TCP(object):
     def remconn(self, conn):
         if conn in self.c2u:
             del self.c2u[conn]
+        if conn in self.c2a:
+            del self.c2a[conn]
         if conn in self.data:
             del self.data[conn]
 
