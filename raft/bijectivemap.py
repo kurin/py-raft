@@ -3,6 +3,7 @@ def create_map():
     second = first.other
     return first, second
 
+
 class BijectiveMap(dict):
     def __init__(self, other=None):
         if other is None:
@@ -14,7 +15,7 @@ class BijectiveMap(dict):
         if key in self:
             # we want to do a -> b but we already have a mapping
             # a -> c, which means the other dict has c -> a
-            # first delete c from the other dict, and then proceed            
+            # first delete c from the other dict, and then proceed
             oldval = self[key]
             dict.__delitem__(self.other, oldval)
         if value in self.other:

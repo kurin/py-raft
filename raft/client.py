@@ -4,7 +4,10 @@ import msgpack
 
 import raft.tcp as tcp
 
-class NoConnection(Exception): pass
+
+class NoConnection(Exception):
+    pass
+
 
 class RaftClient(object):
     def __init__(self, server):
@@ -23,7 +26,7 @@ class RaftClient(object):
         self.tcp.send(rpc, self.leader)
         msgids = self.poll(0.5)
         if not msgids or not msgid in msgids:
-            return #  XXX put real recovery logic here
+            return  # XXX put real recovery logic here
         msg = self.msgs[msgid][0]
         if msg['type'] == 'cr_rdr':
             self.leader = msg['leader']

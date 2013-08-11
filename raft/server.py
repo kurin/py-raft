@@ -12,12 +12,12 @@ import raft.log as log
 
 
 class Server(object):
-    def __init__(self, port=9289, *fakes):
+    def __init__(self, port=9289, *inits):
         self.port = port
-        if not fakes:
+        if not inits:
             self.load()
         else:
-            self.term, self.voted, llog, self.peers, self.uuid = fakes
+            self.term, self.voted, llog, self.peers, self.uuid = inits
             self.log = log.RaftLog(llog)
         self.role = 'follower'
         self.channel = channel.start(port, self.uuid)
@@ -33,18 +33,17 @@ class Server(object):
     #
 
     def load(self):
-        self.term, self.voted, llog, self.peers, self.uuid = store.read_state(self.port)
+        self.term, self.voted, llog, self.peers, \
+            self.uuid = store.read_state(self.port)
         self.log = log.RaftLog(llog)
 
     def save(self):
         store.write_state(self.port, self.term, self.voted,
-                self.log.dump(), self.peers, self.uuid)
+                          self.log.dump(), self.peers, self.uuid)
 
     def run(self):
         self.running = True
-        self.next_index = None
         while self.running:
-            print self.role, self.term, self.commitidx, self.log.get_commit_index(), self.log.maxindex(), self.next_index
             for peer in self.peers:
                 if not peer in self.channel and peer != self.uuid:
                     self.channel.connect(self.peers[peer])
@@ -103,6 +102,11 @@ class Server(object):
             if self.log.get_commit_index() < index:
                 self.msg_recorded(msg)
         else:
+            # exponentially reduce the index for peers
+            # this way if they're only missing a couple log entries,
+            # we only have to send 2 or 4, but if they're missing
+            # a couple thousand we'll find out in less than 2k round
+            # trips
             oldidx = self.next_index.get(uuid, 0)
             diff = self.log.maxindex() - oldidx
             diff = max(diff, 1)
@@ -198,8 +202,7 @@ class Server(object):
             rpc = self.rv_rpc_reply(False)
             self.send_to_peer(rpc, uuid)
             return
-        if (self.voted is None or self.voted == uuid) \
-            and self.log <= olog:
+        if (self.voted is None or self.voted == uuid) and self.log <= olog:
             # we can vote for this guy
             self.voted = uuid
             self.save()
@@ -251,12 +254,12 @@ class Server(object):
 
     def housekeeping(self):
         now = time.time()
+        elapsed = now - self.election_start
         if now - self.last_update > 0.5 and self.role == 'follower':
             # got no heartbeats; leader is probably dead
             # establish candidacy and run for election
             self.call_election()
-        elif self.role == 'candidate' and \
-           now - self.election_start < self.election_timeout:
+        elif self.role == 'candidate' and elapsed < self.election_timeout:
             # we're in an election and haven't won, but the
             # timeout isn't expired.  repoll peers that haven't
             # responded yet

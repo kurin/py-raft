@@ -51,8 +51,8 @@ class RaftLog(object):
 
     def add(self, logentry):
         if not 'index' in logentry:
-            # this is being appended to a leader's log; reject if msgid is known
-            # and allocate a new index for it
+            # this is being appended to a leader's log; reject if msgid is
+            # known and allocate a new index for it
             if logentry['msgid'] in self.log_by_msgid:
                 return
             index = self.maxindex() + 1
@@ -138,6 +138,7 @@ class RaftLog(object):
 
     def __gt__(self, other):
         return not self <= other
+
 
 def logentry(term, uuid, msg):
     rpc = {

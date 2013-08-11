@@ -6,10 +6,12 @@ import select
 
 from raft.bijectivemap import create_map
 
+
 def start(port, uuid):
     tcp = TCP(port, uuid)
     tcp.start()
     return tcp
+
 
 class TCP(object):
     greeting = 'howdy!'
@@ -73,7 +75,7 @@ class TCP(object):
 
     def add_unknown(self, conn):
         self.unknowns.add(conn)
-        msgsize = struct.pack("!I", len(self.greeting) + \
+        msgsize = struct.pack("!I", len(self.greeting) +
                               len(self.uuid) + struct.calcsize("!I"))
         try:
             sent = 0

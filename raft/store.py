@@ -4,6 +4,7 @@ import uuid
 
 import msgpack  # we're using it anyway...
 
+
 def read_state(port):
     sfile = "/tmp/raft-state-%d" % port
     try:
@@ -14,6 +15,7 @@ def read_state(port):
             raise
     # no state file exists; initialize with fresh values
     return 0, None, None, {}, uuid.uuid4().hex
+
 
 def write_state(port, term, voted, log, peers, uuid):
     sfile = "/tmp/raft-state-%d" % port
