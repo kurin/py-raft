@@ -1,15 +1,10 @@
 class RaftLog(object):
     def __init__(self, log):
         if not log:
-            logentry = {
-                'index': 0,
-                'term': 0,
-                'msgid': '',
-                'committed': True,  # everyone has the null message
-                'acked': 0,
-                'msg': {}
-            }
-            log = {0: logentry}
+            le = logentry(0, '', {})
+            le['index'] = 0
+            le['committed'] = True
+            log = {0: le}
         self.log_by_index = log
         self.log_by_msgid = {}
         for ent in self.log_by_index.values():
@@ -115,6 +110,13 @@ class RaftLog(object):
             logs[x+1] = self.log_by_index[x+1]
         return logs
 
+    def committed_logs_after_index(self, index):
+        last = self.get_commit_index()
+        logs = {}
+        for x in range(index, last):
+            logs[x+1] = self.log_by_index[x+1]
+        return logs
+
     def get_commit_index(self):
         for k in reversed(sorted(self.log_by_index)):
             v = self.log_by_index[k]
@@ -145,7 +147,8 @@ def logentry(term, uuid, msg):
         'term': term,
         'msgid': uuid,
         'committed': False,
-        'acked': [],  # don't actually ack until we've saved it
-        'msg': msg
+        'acked': [],
+        'msg': msg,
+        'answer': None
     }
     return rpc

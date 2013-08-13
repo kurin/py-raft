@@ -12,13 +12,14 @@ import raft.log as log
 
 
 class Server(object):
-    def __init__(self, port=9289, *inits):
+    def __init__(self, queue, port=9289, *inits):
         self.port = port
         if not inits:
             self.load()
         else:
             self.term, self.voted, llog, self.peers, self.uuid = inits
             self.log = log.RaftLog(llog)
+        self.queue = queue
         self.role = 'follower'
         self.channel = channel.start(port, self.uuid)
         self.last_update = time.time()
@@ -166,12 +167,34 @@ class Server(object):
             src = msg['src']
             self.send_to_peer(rpc, src)
         except:
+            # we're allowed not to respond at all, in this case,
+            # so if we crashed for some reason, just ignore it
             return
 
     def handle_msg_leader_cq(self, msg):
         src = msg['src']
+        if msg['id'] is None:
+            msgid = uuid.uuid4().hex
+            msg['id'] = msgid
         self.add_to_log(msg)
         rpc = self.cr_rpc_ack(msg['id'])
+        self.send_to_peer(rpc, src)
+
+    def handle_msg_leader_cq_inq(self, msg):
+        src = msg['src']
+        msgid = msg['id']
+        info = {}
+        inquiry = self.log.get_by_uuid(msgid)
+        if inquiry is None:
+            info['status'] = 'unknown'
+        elif inquiry['index'] > self.commitidx:
+            info['status'] = 'pending'
+        elif inquiry['answer'] is None:
+            info['status'] = 'committed'
+        else:
+            info['status'] = 'answered'
+            info['answer'] = inquiry['answer']
+        rpc = self.cr_rpc_ack(msgid, info)
         self.send_to_peer(rpc, src)
 
     def handle_msg_candidate_rv(self, msg):
@@ -444,7 +467,10 @@ class Server(object):
         self.log.add_ack(index, self.term, self.uuid)
 
     def run_committed_messages(self, oldidx):
-        pass
+        for _, val in sorted(self.committed_logs_after_index(oldidx)):
+            msgid = val['id']
+            data = val['data']
+            self.queue.put((msgid, data))
 
     #
     ## rpc methods
@@ -496,6 +522,8 @@ class Server(object):
     def cr_rpc(self, qid, ans):
         # client response RPC
         # qid = query id, ans is arbitrary data
+        # if the qid is None, we make one up and
+        # return it when we ack it
         rpc = {
             'type': 'cr',
             'id': qid,
@@ -503,12 +531,13 @@ class Server(object):
         }
         return msgpack.packb(rpc)
 
-    def cr_rpc_ack(self, qid):
+    def cr_rpc_ack(self, qid, info=None):
         # client response RPC
         # qid = query id, ans is arbitrary data
         rpc = {
             'type': 'cr_ack',
             'id': qid,
+            'info': info
         }
         return msgpack.packb(rpc)
 
