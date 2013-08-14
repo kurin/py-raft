@@ -10,15 +10,13 @@ import raft.store as store
 import raft.tcp as channel
 import raft.log as log
 
+def make_server(port=None):
+    
 
 class Server(object):
-    def __init__(self, queue, port=9289, *inits):
+    def __init__(self, queue, port=9289):
         self.port = port
-        if not inits:
-            self.load()
-        else:
-            self.term, self.voted, llog, self.peers, self.uuid = inits
-            self.log = log.RaftLog(llog)
+        self.load()
         self.queue = queue
         self.role = 'follower'
         self.channel = channel.start(port, self.uuid)
@@ -45,6 +43,7 @@ class Server(object):
     def run(self):
         self.running = True
         while self.running:
+            print self.role, self.log.maxindex()
             for peer in self.peers:
                 if not peer in self.channel and peer != self.uuid:
                     self.channel.connect(self.peers[peer])
@@ -189,11 +188,8 @@ class Server(object):
             info['status'] = 'unknown'
         elif inquiry['index'] > self.commitidx:
             info['status'] = 'pending'
-        elif inquiry['answer'] is None:
-            info['status'] = 'committed'
         else:
-            info['status'] = 'answered'
-            info['answer'] = inquiry['answer']
+            info['status'] = 'committed'
         rpc = self.cr_rpc_ack(msgid, info)
         self.send_to_peer(rpc, src)
 
@@ -277,7 +273,8 @@ class Server(object):
 
     def housekeeping(self):
         now = time.time()
-        elapsed = now - self.election_start
+        if self.role == 'candidate':
+            elapsed = now - self.election_start
         if now - self.last_update > 0.5 and self.role == 'follower':
             # got no heartbeats; leader is probably dead
             # establish candidacy and run for election
@@ -467,9 +464,11 @@ class Server(object):
         self.log.add_ack(index, self.term, self.uuid)
 
     def run_committed_messages(self, oldidx):
-        for _, val in sorted(self.committed_logs_after_index(oldidx)):
-            msgid = val['id']
-            data = val['data']
+        committed = self.log.committed_logs_after_index(oldidx)
+        for _, val in sorted(committed.iteritems()):
+            msg = val['msg']
+            msgid = msg['id']
+            data = msg['data']
             self.queue.put((msgid, data))
 
     #

@@ -149,6 +149,5 @@ def logentry(term, uuid, msg):
         'committed': False,
         'acked': [],
         'msg': msg,
-        'answer': None
     }
     return rpc
