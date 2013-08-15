@@ -3,6 +3,8 @@ import uuid
 import copy
 import random
 import logging
+import threading
+import queue
 
 import msgpack
 
@@ -10,11 +12,16 @@ import raft.store as store
 import raft.tcp as channel
 import raft.log as log
 
-def make_server(port=None):
-    
 
-class Server(object):
-    def __init__(self, queue, port=9289):
+def make_server(port=9289):
+    queue = Queue.Queue
+    server = Server(queue, port)
+    server.start()
+    return queue
+
+
+class Server(threading.Thread):
+    def __init__(self, queue, port):
         self.port = port
         self.load()
         self.queue = queue
@@ -26,6 +33,8 @@ class Server(object):
         self.leader = None
         self.newpeers = None
         self.oldpeers = None
+        threading.Thread.__init__(self)
+        self.daemon = True
 
     #
     ## startup and state methods
@@ -43,7 +52,6 @@ class Server(object):
     def run(self):
         self.running = True
         while self.running:
-            print self.role, self.log.maxindex()
             for peer in self.peers:
                 if not peer in self.channel and peer != self.uuid:
                     self.channel.connect(self.peers[peer])
