@@ -63,7 +63,12 @@ class TCP(object):
                     continue
 
     def recv(self, timeout=0):
-        recv, _, _ = select.select(self.c2u.keys(), [], [], timeout)
+        try:
+            recv, _, _ = select.select(self.c2u.keys(), [], [], timeout)
+        except select.error as e:
+            if e.args[0] == errno.EINTR:
+                return
+            raise
         rcvd = []
         for conn in recv:
             msgs = self.read_conn_msg(conn)
