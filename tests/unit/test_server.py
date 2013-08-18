@@ -15,7 +15,8 @@ def server(monkeypatch):
                  33: dict(index=33, term=26, committed=False, msgid='two', msg={})},
                 {'otherobj': ('1.2.3.4', 5678)},
                 'thisobj')
-    server = srv.Server()
+    queue = Mock()
+    server = srv.Server(queue, 9999, None)
     return server, store, channel
 
 def mk_rv_rpc(term, uuid, log_index, log_term):

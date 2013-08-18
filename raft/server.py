@@ -4,7 +4,7 @@ import copy
 import random
 import logging
 import threading
-import queue
+import Queue
 
 import msgpack
 
@@ -13,17 +13,18 @@ import raft.tcp as channel
 import raft.log as log
 
 
-def make_server(port=9289):
-    queue = Queue.Queue
-    server = Server(queue, port)
+def make_server(port=9289, bootstraps=None):
+    queue = Queue.Queue()
+    server = Server(queue, port, bootstraps)
     server.start()
     return queue
 
 
 class Server(threading.Thread):
-    def __init__(self, queue, port):
+    def __init__(self, queue, port, bootstraps):
         self.port = port
         self.load()
+        self.bootstraps = bootstraps
         self.queue = queue
         self.role = 'follower'
         self.channel = channel.start(port, self.uuid)
@@ -55,6 +56,8 @@ class Server(threading.Thread):
             for peer in self.peers:
                 if not peer in self.channel and peer != self.uuid:
                     self.channel.connect(self.peers[peer])
+            for addr in self.bootstraps:
+                self.channel.connectbs(addr, self.bootstrap_cb)
             channelans = self.channel.recv(0.15)
             if channelans:
                 for peer, msgs in channelans:
@@ -91,6 +94,16 @@ class Server(threading.Thread):
             getattr(self, mname)(msg)
         if self.role == 'leader' and time.time() - self.last_update > 0.3:
             self.send_ae()
+
+    def handle_msg_candidate_bootstrap(self, msg):
+        self.handle_msg_follower_bootstrap(msg)
+
+    def handle_msg_follower_bootstrap(self, msg):
+        # bootstrap packets solve the problem of how we find the
+        # id of our peers.  we don't want to have to copy uuids around
+        # when they could just mail them to each other.
+        print msg
+        print self.peers
 
     def handle_msg_leader_ae_reply(self, msg):
         # we are a leader who has received an ae ack
@@ -479,6 +492,10 @@ class Server(threading.Thread):
             data = msg['data']
             self.queue.put((msgid, data))
 
+    def bootstrap_cb(self, uuid, addr):
+        self.bootstraps.remove(addr)
+        self.peers[uuid] = addr
+
     #
     ## rpc methods
     #
@@ -559,5 +576,12 @@ class Server(threading.Thread):
             'id': msgid,
             'addr': self.get_peer_addr(self.leader),
             'leader': self.leader
+        }
+        return msgpack.packb(rpc)
+
+    def bootstrap_rpc(self):
+        rpc = {
+            'type': 'bootstrap',
+            'id': self.uuid
         }
         return msgpack.packb(rpc)
