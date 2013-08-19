@@ -32,7 +32,7 @@ class RaftLog(object):
         return self.log_by_msgid.get(uuid, None)
 
     def get_by_index(self, index):
-        return self.log_by_index.get(index, None)
+        return self.get(index)
 
     def get_term_of(self, idx):
         le = self.get(idx)
