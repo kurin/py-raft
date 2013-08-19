@@ -77,19 +77,6 @@ class RaftLog(object):
         ent = self.log_by_index[index]
         return len(ent['acked'])
 
-    def is_committed(self, index, term):
-        ent = self.log_by_index[index]
-        if ent['term'] != term:
-            return False
-        return ent['committed']
-
-    def is_committed_by_uuid(self, uuid):
-        ent = self.log_by_msgid.get(uuid, None)
-        if ent is None:
-            return False
-        index = ent['index']
-        return index <= self.get_commit_index()
-
     def commit(self, index, term):
         ent = self.log_by_index[index]
         assert ent['term'] == term
@@ -102,6 +89,19 @@ class RaftLog(object):
         if ent is None:
             return
         ent['committed'] = True
+
+    def is_committed(self, index, term):
+        ent = self.log_by_index[index]
+        if ent['term'] != term:
+            return False
+        return ent['committed']
+
+    def is_committed_by_uuid(self, uuid):
+        ent = self.log_by_msgid.get(uuid, None)
+        if ent is None:
+            return False
+        index = ent['index']
+        return index <= self.get_commit_index()
 
     def logs_after_index(self, index):
         last = self.maxindex()
