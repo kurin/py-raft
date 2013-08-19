@@ -107,3 +107,18 @@ def test_remove():
     rl.remove(1)
     assert rl.get_by_uuid('abcd') == None
     assert rl.get_by_index(1) == None
+
+def test_add():
+    rl = log.RaftLog(None)
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(4, 'abcde', {})
+    rl.add(le1)
+    rl.add(le2)
+    assert le1['index'] == 1
+    assert le2['index'] == 2
+    assert rl.get_by_uuid('abcd') == le1
+    le = log.logentry(6, 'xyz', {})
+    le['index'] = 1
+    rl.add(le)
+    assert rl.get_by_uuid('abcd') == None
+    assert rl.get_by_uuid('abcde') == None
