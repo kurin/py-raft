@@ -76,3 +76,14 @@ def test_maxindex():
     le['index'] = 5
     rl.add(le)
     assert rl.maxindex() == 5
+
+def test_get():
+    rl = log.RaftLog(None)
+    assert rl.get(2) == None
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(2, 'abcde', {})
+    rl.add(le1)
+    rl.add(le2)
+    assert rl.get(2) == le2
+    assert rl.get_by_uuid('abcd') == le1
+    assert rl.get_by_index(1) == le1
