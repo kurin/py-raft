@@ -126,9 +126,7 @@ class RaftLog(object):
         return 0
 
     def exists(self, index, term):
-        if self.log_by_index.get(index, {}).get('term', None) == term:
-            return True
-        return False
+        return self.log_by_index.get(index, {}).get('term', None) == term
 
     def __le__(self, other):
         mi, mt = self.get_max_index_term()
