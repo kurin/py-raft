@@ -61,3 +61,18 @@ def test_has_uuid():
     rl.add(le)
     assert rl.has_uuid('abcd') == True
     assert rl.has_uuid('dcba') == False
+
+def test_maxindex():
+    rl = log.RaftLog(None)
+    assert rl.maxindex() == 0
+    le = log.logentry(2, 'abcd', {})
+    rl.add(le)
+    assert rl.maxindex() == 1
+    le = log.logentry(2, 'abcde', {})
+    le['index'] = 12
+    rl.add(le)
+    assert rl.maxindex() == 12
+    le = log.logentry(2, 'abcdef', {})
+    le['index'] = 5
+    rl.add(le)
+    assert rl.maxindex() == 5
