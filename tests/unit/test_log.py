@@ -152,3 +152,12 @@ def test_commit():
     assert le['committed'] == True
     with pytest.raises(AssertionError):
         rl.commit(1, 8)
+
+def test_force_commit():
+    rl = log.RaftLog(None)
+    le = log.logentry(6, 'xyz', {})
+    rl.add(le)
+    assert le['committed'] == False
+    rl.force_commit(1)
+    assert le['committed'] == True
+    rl.force_commit(5) # bad indices do nothing
