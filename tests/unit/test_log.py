@@ -45,3 +45,12 @@ def test_dump():
     dump = {0: {'term': 0, 'msgid': '', 'committed': True,
                 'acked': [], 'msg': {}, 'index': 0}}
     assert rl.dump() == dump
+
+def test_get_max_index_term():
+    rl = log.RaftLog(None)
+    le = log.logentry(2, 'abcd', {})
+    rl.add(le)
+    assert rl.get_max_index_term() == (1, 2)
+    le = log.logentry(6, 'abcdefg', {})
+    rl.add(le)
+    assert rl.get_max_index_term() == (2, 6)
