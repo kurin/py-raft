@@ -174,3 +174,16 @@ def test_is_committed():
     assert rl.is_committed(1, 2) == True
     assert rl.is_committed(2, 2) == True
     assert rl.is_committed(3, 4) == False
+
+def test_committed_by_uuid():
+    rl = log.RaftLog(None)
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(2, 'abcde', {})
+    le3 = log.logentry(4, 'abcdef', {})
+    rl.add(le1)
+    rl.add(le2)
+    rl.add(le3)
+    rl.commit(2, 2)
+    assert rl.is_committed_by_uuid('abcd') == True
+    assert rl.is_committed_by_uuid('abcdef') == False
+    assert rl.is_committed_by_uuid('abcde') == True
