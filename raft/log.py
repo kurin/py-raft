@@ -131,11 +131,7 @@ class RaftLog(object):
     def __le__(self, other):
         mi, mt = self.get_max_index_term()
         oi, ot = other.get_max_index_term()
-        if ot > mt:
-            return True
-        if ot == mt and oi >= mi:
-            return True
-        return False
+        return ot > mt or ot == mt and oi >= mi
 
     def __gt__(self, other):
         return not self <= other
