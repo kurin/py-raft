@@ -221,3 +221,16 @@ def test_get_commit_index():
     assert rl.get_commit_index() == 0
     rl.commit(2, 2)
     assert rl.get_commit_index() == 2
+
+def test_exists():
+    rl = log.RaftLog(None)
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(2, 'abcde', {})
+    le3 = log.logentry(4, 'abcdef', {})
+    rl.add(le1)
+    rl.add(le2)
+    rl.add(le3)
+    assert rl.exists(0, 0) == True
+    assert rl.exists(1, 2) == True
+    assert rl.exists(1, 1) == False
+    assert rl.exists(3, 4) == True
