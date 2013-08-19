@@ -54,3 +54,10 @@ def test_get_max_index_term():
     le = log.logentry(6, 'abcdefg', {})
     rl.add(le)
     assert rl.get_max_index_term() == (2, 6)
+
+def test_has_uuid():
+    rl = log.RaftLog(None)
+    le = log.logentry(2, 'abcd', {})
+    rl.add(le)
+    assert rl.has_uuid('abcd') == True
+    assert rl.has_uuid('dcba') == False
