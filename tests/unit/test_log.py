@@ -98,3 +98,12 @@ def test_get_term():
     assert rl.get_term_of(1) == 2
     assert rl.get_term_of(2) == 4
 
+def test_remove():
+    rl = log.RaftLog(None)
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(4, 'abcde', {})
+    rl.add(le1)
+    rl.add(le2)
+    rl.remove(1)
+    assert rl.get_by_uuid('abcd') == None
+    assert rl.get_by_index(1) == None
