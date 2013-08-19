@@ -161,3 +161,16 @@ def test_force_commit():
     rl.force_commit(1)
     assert le['committed'] == True
     rl.force_commit(5) # bad indices do nothing
+
+def test_is_committed():
+    rl = log.RaftLog(None)
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(2, 'abcde', {})
+    le3 = log.logentry(4, 'abcdef', {})
+    rl.add(le1)
+    rl.add(le2)
+    rl.add(le3)
+    rl.commit(2, 2)
+    assert rl.is_committed(1, 2) == True
+    assert rl.is_committed(2, 2) == True
+    assert rl.is_committed(3, 4) == False
