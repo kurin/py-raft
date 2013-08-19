@@ -122,3 +122,10 @@ def test_add():
     rl.add(le)
     assert rl.get_by_uuid('abcd') == None
     assert rl.get_by_uuid('abcde') == None
+
+def test_add_ack():
+    rl = log.RaftLog(None)
+    le = log.logentry(6, 'xyz', {})
+    rl.add(le)
+    rl.add_ack(1, 6, 'f')
+    assert 'f' in rl.get_by_uuid('xyz')['acked']
