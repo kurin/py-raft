@@ -208,3 +208,16 @@ def test_committed_logs_after_index():
     rl.add(le3)
     rl.commit(2, 2)
     assert rl.committed_logs_after_index(1) == {2: le2}
+
+def test_get_commit_index():
+    rl = log.RaftLog(None)
+    assert rl.get_commit_index() == 0
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(2, 'abcde', {})
+    le3 = log.logentry(4, 'abcdef', {})
+    rl.add(le1)
+    rl.add(le2)
+    rl.add(le3)
+    assert rl.get_commit_index() == 0
+    rl.commit(2, 2)
+    assert rl.get_commit_index() == 2
