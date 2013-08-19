@@ -129,3 +129,16 @@ def test_add_ack():
     rl.add(le)
     rl.add_ack(1, 6, 'f')
     assert 'f' in rl.get_by_uuid('xyz')['acked']
+
+def test_num_acked():
+    rl = log.RaftLog(None)
+    le = log.logentry(6, 'xyz', {})
+    rl.add(le)
+    assert rl.num_acked(1) == 0
+    rl.add_ack(1, 6, 'f')
+    assert rl.num_acked(1) == 1
+    # double acks don't increase our count
+    rl.add_ack(1, 6, 'f')
+    assert rl.num_acked(1) == 1
+    rl.add_ack(1, 6, 'g')
+    assert rl.num_acked(1) == 2
