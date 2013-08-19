@@ -87,3 +87,14 @@ def test_get():
     assert rl.get(2) == le2
     assert rl.get_by_uuid('abcd') == le1
     assert rl.get_by_index(1) == le1
+
+def test_get_term():
+    rl = log.RaftLog(None)
+    le1 = log.logentry(2, 'abcd', {})
+    le2 = log.logentry(4, 'abcde', {})
+    rl.add(le1)
+    rl.add(le2)
+    assert rl.get_term_of(0) == 0
+    assert rl.get_term_of(1) == 2
+    assert rl.get_term_of(2) == 4
+
