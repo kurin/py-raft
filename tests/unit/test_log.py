@@ -116,6 +116,10 @@ def test_add():
     rl.add(le2)
     assert le1['index'] == 1
     assert le2['index'] == 2
+    # double adds do nothing
+    le1_2 = log.logentry(2, 'abcd', {})
+    rl.add(le1_2)
+    assert 'index' not in le1_2
     assert rl.get_by_uuid('abcd') == le1
     le = log.logentry(6, 'xyz', {})
     le['index'] = 1
@@ -173,6 +177,7 @@ def test_is_committed():
     rl.commit(2, 2)
     assert rl.is_committed(1, 2) == True
     assert rl.is_committed(2, 2) == True
+    assert rl.is_committed(2, 1) == False
     assert rl.is_committed(3, 4) == False
 
 def test_committed_by_uuid():
@@ -187,6 +192,7 @@ def test_committed_by_uuid():
     assert rl.is_committed_by_uuid('abcd') == True
     assert rl.is_committed_by_uuid('abcdef') == False
     assert rl.is_committed_by_uuid('abcde') == True
+    assert rl.is_committed_by_uuid('xyz') == False
 
 def test_logs_after_index():
     rl = log.RaftLog(None)
@@ -221,6 +227,9 @@ def test_get_commit_index():
     assert rl.get_commit_index() == 0
     rl.commit(2, 2)
     assert rl.get_commit_index() == 2
+    rl = log.RaftLog(None)
+    rl.get_by_index(0)['committed'] = False
+    assert rl.get_commit_index() == 0
 
 def test_exists():
     rl = log.RaftLog(None)
