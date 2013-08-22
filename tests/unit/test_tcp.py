@@ -14,4 +14,13 @@ def tcp(monkeypatch):
 def test_start(tcp):
     tcpo, sock, thread = tcp
     tcpo.start()
-    assert sock.socket().bind.called == True    
+    assert sock.socket().bind.called == True
+
+def test_connect(tcp):
+    tcpo, sock, thread = tcp
+    addr = ('otherhost', 1234)
+    # test that connect aborts when the addr already exists
+    tcpo.a2c[addr] = 'hi'
+    tcpo.connect(addr)
+    assert sock.socket.called == False
+    del tcpo.a2c[addr]
