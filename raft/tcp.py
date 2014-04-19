@@ -1,7 +1,10 @@
 import socket
 import errno
 import struct
-import thread
+try:
+    import thread
+except ImportError: # for python3
+    import _thread as thread
 import select
 
 from raft.bijectivemap import create_map
@@ -64,7 +67,7 @@ class TCP(object):
 
     def recv(self, timeout=0):
         try:
-            recv, _, _ = select.select(self.c2u.keys(), [], [], timeout)
+            recv, _, _ = select.select(list(self.c2u.keys()), [], [], timeout)
         except select.error as e:
             if e.args[0] == errno.EINTR:
                 return
