@@ -26,8 +26,8 @@ def test_le():
          3: mle(3, 4)}
     ra = log.RaftLog(a)
     rb = log.RaftLog(b)
-    assert a <= b
-    assert b <= a
+    assert ra <= rb
+    assert rb <= ra
     # terms equal but more commits in b
     a = {1: mle(1, 2),
          2: mle(2, 2),
