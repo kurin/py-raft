@@ -28,4 +28,5 @@ setup(name='py-raft',
       author_email='kurin@delete.org',
       classifiers = filter(None, classifiers.split('\n')),
       package_data={'': ['version.txt']},
-      packages=['raft'])
+      packages=['raft'],
+      install_requires=('msgpack-python'))
