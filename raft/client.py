@@ -1,3 +1,4 @@
+from __future__ import print_function
 import uuid
 
 import msgpack
@@ -20,7 +21,7 @@ class RaftClient(object):
             self.tcp.recv(0.5)
         if not self.tcp.u2c:
             raise NoConnection
-        self.leader = self.tcp.u2c.keys()[0]
+        self.leader = next(iter(self.tcp.u2c.keys()))
 
     def _send(self, rpc, msgid):
         self.tcp.send(rpc, self.leader)
@@ -30,7 +31,7 @@ class RaftClient(object):
         msg = self.msgs[msgid][0]
         if msg['type'] == 'cr_rdr':
             self.leader = msg['leader']
-            print "redirected to %s! %s" % (self.leader, msg['addr'])
+            print("redirected to %s! %s" % (self.leader, msg['addr']))
             self.tcp.connect(msg['addr'])
             del self.msgs[msgid]
             return self._send(rpc, msgid)

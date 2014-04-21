@@ -1,10 +1,15 @@
+from __future__ import print_function
+import sys
 import time
 import uuid
 import copy
 import random
 import logging
 import threading
-import Queue
+try:
+    import Queue
+except ImportError: # for python3
+    import queue as Queue
 
 import msgpack
 
@@ -19,6 +24,11 @@ def make_server(port=9289, bootstraps=None):
     server.start()
     return queue
 
+def iteritems(dictobj):
+    if sys.version_info[0] == 2:
+        return dictobj.itemsiter()
+    else:
+        return dictobj.items()
 
 class Server(threading.Thread):
     def __init__(self, queue, port, bootstraps):
@@ -76,7 +86,7 @@ class Server(threading.Thread):
         # to the appropriate handler.  finally, if we are still
         # (or have become) the leader, send out heartbeats
         try:
-            msg = msgpack.unpackb(msg, use_list=False)
+            msg = msgpack.unpackb(msg, use_list=False, encoding='utf-8')
         except msgpack.UnpackException:
             return
         mtype = msg['type']
@@ -102,8 +112,8 @@ class Server(threading.Thread):
         # bootstrap packets solve the problem of how we find the
         # id of our peers.  we don't want to have to copy uuids around
         # when they could just mail them to each other.
-        print msg
-        print self.peers
+        print(msg)
+        print(self.peers)
 
     def handle_msg_leader_ae_reply(self, msg):
         # we are a leader who has received an ae ack
@@ -486,7 +496,7 @@ class Server(threading.Thread):
 
     def run_committed_messages(self, oldidx):
         committed = self.log.committed_logs_after_index(oldidx)
-        for _, val in sorted(committed.iteritems()):
+        for _, val in sorted(iteritems(committed)):
             msg = val['msg']
             msgid = msg['id']
             data = msg['data']
